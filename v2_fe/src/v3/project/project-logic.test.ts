@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { TaskflowProjectApiEndpoint, TaskflowProjectMember } from "@/api/client"
 
-import { aboutError, aboutPatch, endpointsSummary, isLocalUrl, projectPowers, slugError, sortEndpoints } from "./project-logic"
+import { aboutError, aboutPatch, endpointsSummary, environmentFormError, isLocalUrl, projectPowers, removeEnvironment, slugError, sortEndpoints, upsertEnvironment } from "./project-logic"
 
 function mem(role: TaskflowProjectMember["role"], status: TaskflowProjectMember["status"] = "active"): TaskflowProjectMember {
   return { id: 1, project: 1, member_key: "m", user: 1, display_name: "A", email: null, role, status, invited_by: null, created_at: null, joined_at: null }
@@ -53,5 +53,26 @@ describe("endpoints", () => {
     expect(isLocalUrl("http://127.0.0.1")).toBe(true)
     expect(isLocalUrl("https://api.taskflow.supercodehive.com")).toBe(false)
     expect(isLocalUrl("nope")).toBe(false)
+  })
+})
+
+describe("environment writes", () => {
+  it("keeps exactly one default locally", () => {
+    const rows = [ep(1, "Prod", "production", true), ep(2, "Staging", "staging")]
+    const out = upsertEnvironment(rows, ep(3, "New", "local", true))
+    expect(out.filter((r) => r.is_default).map((r) => r.id)).toEqual([3])
+    expect(upsertEnvironment(rows, { ...ep(2, "Staging 2", "staging") }).find((r) => r.id === 2)?.label).toBe("Staging 2")
+    const after = removeEnvironment(rows, { deleted: 1, default: 2 })
+    expect(after.map((r) => [r.id, r.is_default])).toEqual([[2, true]])
+    expect(removeEnvironment([ep(1, "Only", "local", true)], { deleted: 1, default: null })).toEqual([])
+  })
+
+  it("checks the form like the handler", () => {
+    const ok = { label: "Prod", base_url: "https://api.example.com", environment: "production" as const, notes: "" }
+    expect(environmentFormError(ok)).toBeNull()
+    expect(environmentFormError({ ...ok, label: " " })).toMatch(/name/)
+    expect(environmentFormError({ ...ok, base_url: "/api" })).toMatch(/http/)
+    expect(environmentFormError({ ...ok, base_url: "https://x/" + "a".repeat(400) })).toMatch(/400/)
+    expect(environmentFormError({ ...ok, base_url: "https://a b" })).toMatch(/spaces/)
   })
 })

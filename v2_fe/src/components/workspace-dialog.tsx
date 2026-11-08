@@ -226,7 +226,10 @@ export function WorkspaceDialog({
                 <Input name="repository_url" placeholder="https://github.com/org/repo" />
               </FormField>
               <FormField label="API base">
-                <Input name="default_api_base_url" defaultValue={activeProject?.apiBase ?? ""} />
+                {/* #1139: follows the project's default environment. Disabled, so
+                    it isn't submitted: the settings PATCH only takes an http(s)
+                    URL, and a project still on the old "/api" would 400. */}
+                <Input name="default_api_base_url" defaultValue={activeProject?.apiBase ?? ""} disabled title="Follows the default environment. Change it under Environments." />
               </FormField>
               <FormField label="Status">
                 <SelectField
@@ -445,7 +448,10 @@ export function WorkspaceDialog({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <FormField label="API base">
-                <Input name="default_api_base_url" defaultValue={activeProject?.apiBase ?? ""} />
+                {/* #1139: follows the project's default environment. Disabled, so
+                    it isn't submitted: the settings PATCH only takes an http(s)
+                    URL, and a project still on the old "/api" would 400. */}
+                <Input name="default_api_base_url" defaultValue={activeProject?.apiBase ?? ""} disabled title="Follows the default environment. Change it under Environments." />
               </FormField>
               <FormField label="Sync mode">
                 <SelectField name="syncMode" defaultValue="realtime" options={syncModeOptions} />

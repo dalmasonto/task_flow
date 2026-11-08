@@ -2102,6 +2102,54 @@ export async function createTaskflowProject(input: CreateProjectInput): Promise<
   return readJson(response)
 }
 
+/// #1139: a project's API environments. Owners and admins only; exactly one
+/// default whenever any exist (the first is it; only `/default` moves it), and
+/// the project's `default_api_base_url` follows the default. `health` and
+/// `last_checked_at` are server-only.
+export type EnvironmentInput = {
+  label: string
+  base_url: string
+  environment?: TaskflowProjectApiEndpoint["environment"]
+  notes_markdown?: string | null
+}
+
+async function environmentError(response: Response, fallback: string): Promise<Error> {
+  const data = (await response.clone().json().catch(() => null)) as { error?: string; field?: string; detail?: string } | null
+  if (data?.error === "busy") return new Error("The environments are being changed right now. Try again in a moment.")
+  if (data?.error === "owner_or_admin_only" || response.status === 403) return new Error("Only the project's owners and admins can change environments.")
+  if (data?.error === "invalid" && data.detail) return new Error(data.field === "base_url" ? `Address: ${data.detail}` : data.field === "label" ? `Name: ${data.detail}` : data.detail)
+  return new Error(await readErrorDetail(response, fallback))
+}
+
+function environmentsUrl(projectId: number, rest = ""): string {
+  return `${API_BASE_URL}/api/taskflow/projects/${projectId}/environments${rest}`
+}
+
+export async function createEnvironment(projectId: number, input: EnvironmentInput & { is_default?: boolean }): Promise<TaskflowProjectApiEndpoint> {
+  const response = await fetch(environmentsUrl(projectId), { method: "POST", credentials: "include", headers: bearerHeaders(), body: JSON.stringify(input) })
+  if (!response.ok) throw await environmentError(response, `Could not add the environment (${response.status}).`)
+  return readJson(response)
+}
+
+export async function updateEnvironment(projectId: number, id: number, input: Partial<EnvironmentInput>): Promise<TaskflowProjectApiEndpoint> {
+  const response = await fetch(environmentsUrl(projectId, `/${id}`), { method: "PATCH", credentials: "include", headers: bearerHeaders(), body: JSON.stringify(input) })
+  if (!response.ok) throw await environmentError(response, `Could not save the environment (${response.status}).`)
+  return readJson(response)
+}
+
+export async function deleteEnvironment(projectId: number, id: number): Promise<{ deleted: number; default: number | null }> {
+  const response = await fetch(environmentsUrl(projectId, `/${id}`), { method: "DELETE", credentials: "include", headers: bearerHeaders() })
+  if (!response.ok) throw await environmentError(response, `Could not remove the environment (${response.status}).`)
+  return readJson(response)
+}
+
+/// Make one environment the default; answers every environment, default first.
+export async function setDefaultEnvironment(projectId: number, id: number): Promise<TaskflowProjectApiEndpoint[]> {
+  const response = await fetch(environmentsUrl(projectId, `/${id}/default`), { method: "POST", credentials: "include", headers: bearerHeaders() })
+  if (!response.ok) throw await environmentError(response, `Could not change the default (${response.status}).`)
+  return readJson(response)
+}
+
 /// What a client may change on a project (#1137). The owner/admin handler is
 /// the only writer, with `deny_unknown_fields`: `owner` is never client-written,
 /// and the `github_*` columns go through the GitHub routes. Archiving, or
