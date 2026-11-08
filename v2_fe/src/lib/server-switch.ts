@@ -46,3 +46,17 @@ export async function switchServer(target: string, buildDefault: string): Promis
   clearStoredSession()
   return "/v3/login"
 }
+
+/// Sign out of a server you're not on: revoke its kept token at THAT server
+/// (its own logout, with its own token, so a token still never reaches a
+/// server that didn't issue it), then drop it from this device. Revoking is
+/// best-effort: an unreachable server's token is forgotten here anyway and
+/// expires there on its own. The active server signs out through logout.
+export async function forgetKeptSession(server: string): Promise<void> {
+  const kept = await siteDb.sessions.get(server).catch(() => undefined)
+  if (kept?.token) {
+    const base = server || window.location.origin
+    await fetch(`${base}/api/auth/logout`, { method: "POST", headers: { authorization: `Bearer ${kept.token}` } }).catch(() => undefined)
+  }
+  await siteDb.sessions.delete(server).catch(() => undefined)
+}
