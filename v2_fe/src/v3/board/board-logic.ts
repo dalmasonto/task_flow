@@ -3,7 +3,7 @@
 /// is left off the card rather than faked.
 import type { TaskflowAgent, TaskflowTask } from "@/api/client"
 import { matchesBoardSearch } from "@/lib/board-filter"
-import type { Priority, Task } from "@/lib/workspace-view"
+import type { ColumnId, Priority, Task } from "@/lib/workspace-view"
 
 import { guessModel, type ModelId } from "../components/actor-models"
 
@@ -62,12 +62,13 @@ export function cardInfo(task: Task, raw: TaskflowTask | undefined, agents: Task
 
 export type AssigneeFilter = "all" | "agents" | "people" | "unassigned" | "mine"
 
-export type BoardFilter = { search: string; priority: Priority | "all"; assignee: AssigneeFilter; repo: string | "all" }
+/// `statuses` empty = every column.
+export type BoardFilter = { search: string; priority: Priority | "all"; assignee: AssigneeFilter; repo: string | "all"; statuses: ColumnId[] }
 
-export const EMPTY_FILTER: BoardFilter = { search: "", priority: "all", assignee: "all", repo: "all" }
+export const EMPTY_FILTER: BoardFilter = { search: "", priority: "all", assignee: "all", repo: "all", statuses: [] }
 
 export function filterIsActive(f: BoardFilter): boolean {
-  return f.search.trim() !== "" || f.priority !== "all" || f.assignee !== "all" || f.repo !== "all"
+  return f.search.trim() !== "" || f.priority !== "all" || f.assignee !== "all" || f.repo !== "all" || f.statuses.length > 0
 }
 
 function matchesAssignee(raw: TaskflowTask | undefined, who: AssigneeFilter, me: number | null): boolean {
@@ -89,6 +90,7 @@ export function filterBoard(tasks: Task[], rawById: Map<string, TaskflowTask>, f
   return tasks.filter((t) => {
     const raw = rawById.get(t.id)
     return (
+      (f.statuses.length === 0 || f.statuses.includes(t.status)) &&
       (f.priority === "all" || t.priority === f.priority) &&
       (f.repo === "all" || raw?.github_repo === f.repo) &&
       matchesAssignee(raw, f.assignee, me) &&
@@ -102,4 +104,28 @@ export function boardRepos(raws: Iterable<TaskflowTask>): string[] {
   const set = new Set<string>()
   for (const r of raws) if (r.github_repo) set.add(r.github_repo)
   return [...set].sort()
+}
+
+/// The design's saved views, as built-in presets over the same filter. (Views
+/// people save themselves need a backend; until then these four are fixed.)
+export type ViewId = "all" | "agents" | "review" | "blocked_me"
+
+export const VIEWS: { id: ViewId; label: string; filter: Partial<BoardFilter> }[] = [
+  { id: "all", label: "All tasks", filter: {} },
+  { id: "agents", label: "Agents at work", filter: { assignee: "agents", statuses: ["in_progress"] } },
+  { id: "review", label: "Needs review", filter: { statuses: ["review"] } },
+  { id: "blocked_me", label: "Blocked on me", filter: { assignee: "mine", statuses: ["blocked"] } },
+]
+
+export function viewFilter(id: ViewId): BoardFilter {
+  return { ...EMPTY_FILTER, ...(VIEWS.find((v) => v.id === id)?.filter ?? {}) }
+}
+
+/// Which preset the current filter is exactly, if any (so the tab lights up).
+export function activeView(f: BoardFilter): ViewId | null {
+  for (const v of VIEWS) {
+    const p = viewFilter(v.id)
+    if (p.search === f.search && p.priority === f.priority && p.assignee === f.assignee && p.repo === f.repo && p.statuses.join() === f.statuses.join()) return v.id
+  }
+  return null
 }

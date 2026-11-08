@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { TaskflowAgent, TaskflowTask } from "@/api/client"
 import type { Task } from "@/lib/workspace-view"
 
-import { boardRepos, cardInfo, EMPTY_FILTER, filterBoard, filterIsActive } from "./board-logic"
+import { activeView, boardRepos, cardInfo, EMPTY_FILTER, filterBoard, filterIsActive, viewFilter } from "./board-logic"
 
 const task = (id: string, extra: Partial<Task> = {}) =>
   ({ id, title: `Task ${id}`, priority: "normal", status: "in_progress", owner: "", operatorName: "", tags: [], ...extra }) as Task
@@ -55,5 +55,24 @@ describe("filterBoard", () => {
   })
   it("lists repos only from loaded tasks", () => {
     expect(boardRepos(raws.values())).toEqual(["a/x", "a/y"])
+  })
+})
+
+describe("saved views", () => {
+  const tasks = [task("1", { status: "in_progress" }), task("2", { status: "blocked" }), task("3", { status: "review" })]
+  const raws = new Map([
+    ["1", raw(1, { assigned_agent_id: 5 })],
+    ["2", raw(2, { assigned_user: 9 })],
+    ["3", raw(3)],
+  ])
+  it("each preset keeps what its name says", () => {
+    expect(filterBoard(tasks, raws, viewFilter("agents"), 9).map((t) => t.id)).toEqual(["1"])
+    expect(filterBoard(tasks, raws, viewFilter("review"), 9).map((t) => t.id)).toEqual(["3"])
+    expect(filterBoard(tasks, raws, viewFilter("blocked_me"), 9).map((t) => t.id)).toEqual(["2"])
+  })
+  it("recognises a preset, and stops once the filter is changed", () => {
+    expect(activeView(viewFilter("review"))).toBe("review")
+    expect(activeView(EMPTY_FILTER)).toBe("all")
+    expect(activeView({ ...viewFilter("review"), search: "x" })).toBeNull()
   })
 })

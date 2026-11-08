@@ -2,7 +2,6 @@
 /// as the kanban, grouped by status into collapsible sections. The design's
 /// "Working on" and "Lease" columns arrive with their backends (live tool,
 /// claim leases); until then they're left out rather than shown empty.
-import { useState } from "react"
 import { Link } from "react-router-dom"
 import { ChevronRightIcon, PlusIcon, UserIcon } from "lucide-react"
 
@@ -19,23 +18,23 @@ import { COLUMN_LABEL, COLUMN_TONE } from "../components/status-tones"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
-import { EMPTY_FILTER, filterIsActive, type BoardFilter } from "./board-logic"
+import { filterIsActive } from "./board-logic"
 import { BoardToolbar, NewTaskButton } from "./BoardPage"
 import { PriorityMark } from "./TaskCard"
-import { useBoardData } from "./use-board-data"
+import { useBoardData, useBoardFilter } from "./use-board-data"
 
 const GRID = "grid grid-cols-[1rem_3.5rem_minmax(0,1fr)_1.5rem] items-center gap-3 md:grid-cols-[1rem_3.5rem_minmax(0,1fr)_9rem_5rem_6rem]"
 
 export function BoardListPage() {
   const { activeProject, board } = useWorkspace()
   const now = useLivenessNow()
-  const [filter, setFilter] = useState<BoardFilter>(EMPTY_FILTER)
-  const { shown, card, repos, all } = useBoardData(filter)
+  const [filter, setFilter] = useBoardFilter()
+  const { shown, card, count, repos, all } = useBoardData(filter)
 
   return (
     <V3Shell title="Board" flush actions={activeProject ? <NewTaskButton /> : null}>
       <div className="flex h-full min-h-0 flex-col">
-        <BoardToolbar view="list" filter={filter} onFilter={setFilter} repos={repos} shown={shown.length} />
+        <BoardToolbar view="list" filter={filter} onFilter={setFilter} repos={repos} shown={shown.length} count={count} />
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className={cn(GRID, "sticky top-0 z-10 border-b border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground lg:px-6")}>
             <span>
@@ -47,7 +46,7 @@ export function BoardListPage() {
             <span className="hidden md:block">Due</span>
             <span className="hidden text-right md:block">Updated</span>
           </div>
-          {columns.map((col) => {
+          {columns.filter((col) => filter.statuses.length === 0 || filter.statuses.includes(col.id)).map((col) => {
             const rows = shown.filter((t) => t.status === col.id)
             const loaded = all.filter((t) => t.status === col.id).length
             const total = board.columnTotals[col.id as BoardColumnId] ?? loaded

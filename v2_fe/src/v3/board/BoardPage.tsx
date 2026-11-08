@@ -3,10 +3,11 @@
 /// workspace: the optimistic move + write, per-column paging, server totals.
 import { useState, type DragEvent } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ColumnsIcon, KanbanIcon, ListIcon, PlusIcon, SearchIcon, TriangleAlertIcon, XIcon } from "lucide-react"
+import { ChevronDownIcon, ColumnsIcon, KanbanIcon, ListIcon, PlusIcon, SearchIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -19,8 +20,8 @@ import { StatusChip } from "../components/status-chip"
 import { COLUMN_LABEL, COLUMN_TONE } from "../components/status-tones"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
-import { EMPTY_FILTER, filterIsActive, type AssigneeFilter, type BoardFilter } from "./board-logic"
-import { useBoardData } from "./use-board-data"
+import { activeView, EMPTY_FILTER, filterIsActive, VIEWS, viewFilter, type AssigneeFilter, type BoardFilter } from "./board-logic"
+import { useBoardData, useBoardFilter } from "./use-board-data"
 import { TaskCard } from "./TaskCard"
 
 const ASSIGNEE_LABEL: Record<AssigneeFilter, string> = {
@@ -73,6 +74,42 @@ function FilterChips({ filter, onChange, repos, shown }: { filter: BoardFilter; 
         />
       </div>
       <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto text-sm">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn("h-8 shrink-0 rounded-full font-normal", filter.statuses.length > 0 && "border-ring/50 bg-accent")}
+              />
+            }
+          >
+            {filter.statuses.length === 0
+              ? "Any status"
+              : filter.statuses.length === 1
+                ? COLUMN_LABEL[filter.statuses[0]]
+                : `${filter.statuses.length} statuses`}
+            <ChevronDownIcon className="text-muted-foreground" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            {columns.map((c) => (
+              <DropdownMenuCheckboxItem
+                key={c.id}
+                checked={filter.statuses.includes(c.id)}
+                onCheckedChange={(on) =>
+                  onChange({
+                    ...filter,
+                    statuses: on
+                      ? columns.map((x) => x.id).filter((id) => id === c.id || filter.statuses.includes(id))
+                      : filter.statuses.filter((s) => s !== c.id),
+                  })
+                }
+              >
+                {COLUMN_LABEL[c.id]}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Select items={ASSIGNEE_LABEL} value={filter.assignee} onValueChange={(v) => onChange({ ...filter, assignee: (v ?? "all") as AssigneeFilter })}>
           <SelectTrigger className={cn("h-8 w-auto shrink-0 rounded-full", filter.assignee !== "all" && "border-ring/50 bg-accent")} aria-label="Assignee">
             <SelectValue />
@@ -131,13 +168,57 @@ function FilterChips({ filter, onChange, repos, shown }: { filter: BoardFilter; 
 }
 
 /// The toolbar under the header, shared with the list view.
-export function BoardToolbar({ view, filter, onFilter, repos, shown }: { view: "board" | "list"; filter: BoardFilter; onFilter: (f: BoardFilter) => void; repos: string[]; shown: number }) {
+function SavedViews({ filter, onFilter, count }: { filter: BoardFilter; onFilter: (f: BoardFilter) => void; count: (f: BoardFilter) => number }) {
+  const active = activeView(filter)
+  // "All" is the server's total; the other views count what's loaded, which
+  // covers them (their columns are small; Done, the big one, isn't in any).
+  const { board } = useWorkspace()
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 lg:px-6">
-      <ViewTabs active={view} />
-      <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
-      <FilterChips filter={filter} onChange={onFilter} repos={repos} shown={shown} />
+    <div role="tablist" aria-label="Saved views" className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-4 pt-2 lg:px-6">
+      {VIEWS.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          role="tab"
+          aria-selected={active === v.id}
+          onClick={() => onFilter(viewFilter(v.id))}
+          className={cn(
+            "-mb-px inline-flex h-9 shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-sm",
+            active === v.id ? "border-foreground font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {v.label}
+          <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{v.id === "all" ? board.total : count(viewFilter(v.id))}</span>
+        </button>
+      ))}
     </div>
+  )
+}
+
+export function BoardToolbar({
+  view,
+  filter,
+  onFilter,
+  repos,
+  shown,
+  count,
+}: {
+  view: "board" | "list"
+  filter: BoardFilter
+  onFilter: (f: BoardFilter) => void
+  repos: string[]
+  shown: number
+  count: (f: BoardFilter) => number
+}) {
+  return (
+    <>
+      <SavedViews filter={filter} onFilter={onFilter} count={count} />
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 lg:px-6">
+        <ViewTabs active={view} />
+        <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
+        <FilterChips filter={filter} onChange={onFilter} repos={repos} shown={shown} />
+      </div>
+    </>
   )
 }
 
@@ -158,7 +239,9 @@ function BoardEmpty() {
           <KanbanIcon />
         </EmptyMedia>
         <EmptyTitle>No tasks yet</EmptyTitle>
-        <EmptyDescription>Tasks are how your agents know what to work on. Add one yourself, or ask an agent in chat to read the repo and draft the first few.</EmptyDescription>
+        <EmptyDescription>
+          Tasks are how your agents know what to work on. Add one yourself, or ask an agent in chat to read the repo and draft the first few.
+        </EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="w-full gap-2">
         <Button className="w-full" render={<Link to="/v3/tasks/new" />} nativeButton={false}>
@@ -193,12 +276,11 @@ function BoardSkeleton() {
   )
 }
 
-
 export function BoardPage() {
   const navigate = useNavigate()
   const { activeProject, isSyncing, board } = useWorkspace()
-  const [filter, setFilter] = useState<BoardFilter>(EMPTY_FILTER)
-  const { shown, card, repos, all } = useBoardData(filter)
+  const [filter, setFilter] = useBoardFilter()
+  const { shown, card, count, repos, all } = useBoardData(filter)
   const [dragged, setDragged] = useState<string | null>(null)
   const [target, setTarget] = useState<DropTarget | null>(null)
 
@@ -242,75 +324,82 @@ export function BoardPage() {
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div className="flex h-full snap-x snap-mandatory gap-3 p-4 lg:px-6">
           {/* The design's right-edge fade: says there's more board off screen. */}
-          <div className="pointer-events-none sticky left-full z-10 order-last -ml-20 hidden h-full w-20 shrink-0 bg-gradient-to-l from-background to-transparent lg:block" aria-hidden />
-          {columns.map((col) => {
-            const inColumn = shown.filter((t) => t.status === col.id)
-            const loaded = all.filter((t) => t.status === col.id).length
-            const total = board.columnTotals[col.id as BoardColumnId] ?? loaded
-            const loading = board.loadingColumns.has(col.id as BoardColumnId)
-            return (
-              <section
-                key={col.id}
-                aria-label={COLUMN_LABEL[col.id]}
-                className="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80"
-                onDragOver={(e) => {
-                  if (!dragged) return
-                  e.preventDefault()
-                  if (!inColumn.length && target?.columnId !== col.id) setTarget({ columnId: col.id, taskId: null, position: "after" })
-                }}
-                onDrop={(e) => drop(e, col.id)}
-              >
-                <div className="mb-2 flex items-center gap-2 px-1">
-                  <StatusChip tone={COLUMN_TONE[col.id]} />
-                  <span className="text-xs tabular-nums text-muted-foreground">{filterIsActive(filter) ? `${inColumn.length} of ${total}` : total}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="ml-auto"
-                    aria-label={`Add a task to ${COLUMN_LABEL[col.id]}`}
-                    render={<Link to={`/v3/tasks/new?status=${col.id}`} />}
-                    nativeButton={false}
-                  >
-                    <PlusIcon />
-                  </Button>
-                </div>
-                <div
-                  className={cn(
-                    "min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2 transition-colors",
-                    dragged && target?.columnId === col.id && "bg-accent/60",
-                  )}
+          <div
+            className="pointer-events-none sticky left-full z-10 order-last -ml-20 hidden h-full w-20 shrink-0 bg-gradient-to-l from-background to-transparent lg:block"
+            aria-hidden
+          />
+          {columns
+            .filter((col) => filter.statuses.length === 0 || filter.statuses.includes(col.id))
+            .map((col) => {
+              const inColumn = shown.filter((t) => t.status === col.id)
+              const loaded = all.filter((t) => t.status === col.id).length
+              const total = board.columnTotals[col.id as BoardColumnId] ?? loaded
+              const loading = board.loadingColumns.has(col.id as BoardColumnId)
+              return (
+                <section
+                  key={col.id}
+                  aria-label={COLUMN_LABEL[col.id]}
+                  className="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80"
+                  onDragOver={(e) => {
+                    if (!dragged) return
+                    e.preventDefault()
+                    if (!inColumn.length && target?.columnId !== col.id) setTarget({ columnId: col.id, taskId: null, position: "after" })
+                  }}
+                  onDrop={(e) => drop(e, col.id)}
                 >
-                  {inColumn.map((t) => (
-                    <div key={t.id} onDragOver={(e) => overCard(e, col.id, t.id)} className="relative">
-                      {target?.taskId === t.id && target.position === "before" ? <DropLine /> : null}
-                      <TaskCard
-                        card={card(t)}
-                        dragging={dragged === t.id}
-                        onDragStart={(e) => {
-                          e.dataTransfer.effectAllowed = "move"
-                          e.dataTransfer.setData("text/plain", `#${t.id}`)
-                          setDragged(t.id)
-                        }}
-                        onDragEnd={() => {
-                          setDragged(null)
-                          setTarget(null)
-                        }}
-                      />
-                      {target?.taskId === t.id && target.position === "after" ? <DropLine /> : null}
-                    </div>
-                  ))}
-                  {!inColumn.length ? (
-                    <p className="px-2 py-6 text-center text-xs text-muted-foreground">{filterIsActive(filter) ? "Nothing here matches." : "Nothing here yet."}</p>
-                  ) : null}
-                  {loaded < total ? (
-                    <Button variant="ghost" size="sm" className="w-full" disabled={loading} onClick={() => board.loadMore(col.id as BoardColumnId, loaded)}>
-                      {loading ? "Loading…" : `Load ${Math.min(25, total - loaded)} more of ${total - loaded}`}
+                  <div className="mb-2 flex items-center gap-2 px-1">
+                    <StatusChip tone={COLUMN_TONE[col.id]} />
+                    <span className="text-xs tabular-nums text-muted-foreground">{filterIsActive(filter) ? `${inColumn.length} of ${total}` : total}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="ml-auto"
+                      aria-label={`Add a task to ${COLUMN_LABEL[col.id]}`}
+                      render={<Link to={`/v3/tasks/new?status=${col.id}`} />}
+                      nativeButton={false}
+                    >
+                      <PlusIcon />
                     </Button>
-                  ) : null}
-                </div>
-              </section>
-            )
-          })}
+                  </div>
+                  <div
+                    className={cn(
+                      "min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2 transition-colors",
+                      dragged && target?.columnId === col.id && "bg-accent/60",
+                    )}
+                  >
+                    {inColumn.map((t) => (
+                      <div key={t.id} onDragOver={(e) => overCard(e, col.id, t.id)} className="relative">
+                        {target?.taskId === t.id && target.position === "before" ? <DropLine /> : null}
+                        <TaskCard
+                          card={card(t)}
+                          dragging={dragged === t.id}
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = "move"
+                            e.dataTransfer.setData("text/plain", `#${t.id}`)
+                            setDragged(t.id)
+                          }}
+                          onDragEnd={() => {
+                            setDragged(null)
+                            setTarget(null)
+                          }}
+                        />
+                        {target?.taskId === t.id && target.position === "after" ? <DropLine /> : null}
+                      </div>
+                    ))}
+                    {!inColumn.length ? (
+                      <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                        {filterIsActive(filter) ? "Nothing here matches." : "Nothing here yet."}
+                      </p>
+                    ) : null}
+                    {loaded < total ? (
+                      <Button variant="ghost" size="sm" className="w-full" disabled={loading} onClick={() => board.loadMore(col.id as BoardColumnId, loaded)}>
+                        {loading ? "Loading…" : `Load ${Math.min(25, total - loaded)} more of ${total - loaded}`}
+                      </Button>
+                    ) : null}
+                  </div>
+                </section>
+              )
+            })}
         </div>
       </div>
     )
@@ -319,7 +408,9 @@ export function BoardPage() {
   return (
     <V3Shell title="Board" flush actions={activeProject ? <NewTaskButton /> : null}>
       <div className="flex h-full min-h-0 flex-col">
-        {activeProject && all.length > 0 ? <BoardToolbar view="board" filter={filter} onFilter={setFilter} repos={repos} shown={shown.length} /> : null}
+        {activeProject && all.length > 0 ? (
+          <BoardToolbar view="board" filter={filter} onFilter={setFilter} repos={repos} shown={shown.length} count={count} />
+        ) : null}
         {board.syncError ? (
           <Alert variant="destructive" className="mx-4 mt-3 w-auto rounded-xl lg:mx-6">
             <TriangleAlertIcon />
