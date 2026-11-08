@@ -41,6 +41,7 @@ import { useWorkspace, type V3Workspace } from "../workspace"
 import { CommandPalette } from "./CommandPalette"
 import { activeNavId, V3_NAV, type NavItem } from "./nav"
 import { ProjectSwitcher } from "./ProjectSwitcher"
+import { OfflineBanner } from "../system/OfflineBanner"
 
 function NavLink({ item, active, counts }: { item: NavItem; active: boolean; counts: V3Workspace["counts"] }) {
   const n = item.count ? counts[item.count] : 0
@@ -218,6 +219,7 @@ export function V3Shell({ title, actions, flush, children }: { title: string; ac
             <LiveStatus />
           </div>
         </header>
+        <OfflineBanner />
         <main className={cn("min-h-0 flex-1 overflow-y-auto", !flush && "p-4 lg:p-6")}>{children}</main>
       </SidebarInset>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
