@@ -9,4 +9,5 @@ pub mod media_access;
 pub mod realtime;
 pub mod rest;
 pub mod signup_validation;
+pub mod token_lifetime;
 pub mod validation;
