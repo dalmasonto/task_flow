@@ -2,7 +2,7 @@
 /// "Account" with a tab row across Profile, Connections, Settings, Security
 /// and Invitations. The tab row scrolls sideways on phones rather than
 /// wrapping, and Invitations carries the count of open invitations.
-import type { ReactNode } from "react"
+import { useEffect, useRef, type ReactNode } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 import { fetchMyInvites } from "@/lib/taskflow-api"
@@ -25,6 +25,11 @@ export function AccountShell({ children, actions, inviteCount }: { children: Rea
   // every other tab asks once for the badge.
   const invites = useLoad(inviteCount == null ? "account-invite-count" : null, () => fetchMyInvites())
   const count = inviteCount ?? invites.data?.filter((i) => i.status === "pending").length ?? 0
+  // On a phone the row scrolls sideways; keep the active tab in view.
+  const activeRef = useRef<HTMLAnchorElement>(null)
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+  }, [pathname])
   return (
     <V3Shell title="Account" actions={actions}>
       <div className="mx-auto max-w-3xl">
@@ -36,6 +41,7 @@ export function AccountShell({ children, actions, inviteCount }: { children: Rea
               return (
                 <li key={t.id}>
                   <Link
+                    ref={on ? activeRef : undefined}
                     to={href}
                     aria-current={on ? "page" : undefined}
                     className={cn("relative flex h-10 items-center gap-2 px-3 text-sm whitespace-nowrap", on ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}

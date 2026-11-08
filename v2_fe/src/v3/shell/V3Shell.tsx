@@ -3,7 +3,7 @@
 /// workspace data, never a placeholder.
 import { useEffect, useState, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { ChevronRightIcon, ChevronsUpDownIcon, LogOutIcon, PlusIcon, SearchIcon, SettingsIcon, UserIcon } from "lucide-react"
+import { ChevronRightIcon, ChevronsUpDownIcon, LogOutIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, UserIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -86,6 +86,10 @@ function UserMenu() {
         <DropdownMenuItem onClick={() => navigate("/v3/account/settings")}>
           <SettingsIcon />
           Settings
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/v3/account/servers")}>
+          <ServerIcon />
+          Servers and accounts
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
