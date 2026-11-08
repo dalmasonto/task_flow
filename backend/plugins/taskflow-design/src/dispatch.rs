@@ -200,17 +200,7 @@ pub async fn dispatch_comments(
             // put back exactly what this dispatch took (still sent, to this
             // agent), so the comments can be dispatched again.
             for c in &comments {
-                let mut v = serde_json::Map::new();
-                v.insert("status".into(), json!(crate::comment_write::status_str(CommentStatus::Open)));
-                v.insert("sent_to_agent".into(), serde_json::Value::Null);
-                let _ = DesignComment::objects()
-                    .filter(
-                        design_comment::ID.eq(c.id)
-                            & design_comment::STATUS.eq("sent")
-                            & design_comment::SENT_TO_AGENT.eq(agent.id),
-                    )
-                    .update_values(v)
-                    .await;
+                let _ = crate::comment_write::release_claim(project_id, c.id, agent.id).await;
             }
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }

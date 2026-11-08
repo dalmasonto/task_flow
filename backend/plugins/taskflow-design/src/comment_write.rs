@@ -91,7 +91,8 @@ pub async fn write(
 
 /// The `post_save` a whole-row save would have fired, without the write: the
 /// same name and `{instance, created}` payload as umbral's own emit (which
-/// the `umbral` facade does not re-export), so realtime's `expose` picks it up.
+/// the `umbral` facade does not re-export; umbra gaps6 #27), so realtime's
+/// `expose` picks it up. Kept honest by `tests/comment_cas.rs`.
 async fn emit_post_save(row: &DesignComment) {
     use umbral::orm::Model as _;
     let Ok(mut instance) = serde_json::to_value(row) else { return };
@@ -101,6 +102,31 @@ async fn emit_post_save(row: &DesignComment) {
         }
     }
     umbral::signals::emit(&format!("post_save:{}", DesignComment::TABLE), json!({ "instance": instance, "created": false })).await;
+}
+
+/// Give back a dispatch's claim: sent → open, only while the comment is still
+/// sent to THIS agent (a resolve or a re-dispatch since then is left alone).
+/// Emits `post_save` like every write here, so the pin re-colours live.
+pub async fn release_claim(project: i64, id: i64, agent: i64) -> Result<(), WriteError> {
+    let mut v = Map::new();
+    v.insert("status".into(), json!(status_str(CommentStatus::Open)));
+    v.insert("sent_to_agent".into(), Value::Null);
+    let n = DesignComment::objects()
+        .filter(
+            design_comment::PROJECT.eq(project)
+                & design_comment::ID.eq(id)
+                & design_comment::STATUS.eq(status_str(CommentStatus::Sent))
+                & design_comment::SENT_TO_AGENT.eq(agent),
+        )
+        .update_values(v)
+        .await
+        .map_err(|_| WriteError::Internal)?;
+    if n > 0 {
+        if let Some(row) = fresh(project, id).await? {
+            emit_post_save(&row).await;
+        }
+    }
+    Ok(())
 }
 
 /// Set `resolution_note` only where it is still null (the "Addressed."
