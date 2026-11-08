@@ -189,3 +189,84 @@ async fn change_password_attempts_are_throttled() {
     assert_eq!(change_password(router.clone(), &key, PASSWORD, "a-brand-new-long-pass").await, 429, "even the right one waits");
     assert_eq!(change_password(router.clone(), &other_key, "wrong-password-here", "another-long-pass").await, 400, "another user is unaffected");
 }
+
+/// Raw change-password POST: any content type, a bearer or a cookie session.
+async fn change_password_raw(router: Router, auth: (&'static str, String), content_type: &str, body: &str) -> (u16, String) {
+    let c = TestClient::new(router);
+    c.set_default_header(http::header::HeaderName::from_static(auth.0), http::HeaderValue::from_str(&auth.1).unwrap());
+    c.set_default_header(http::header::CONTENT_TYPE, http::HeaderValue::from_str(content_type).unwrap());
+    let r = c.send(http::Method::POST, "/api/auth/change-password", axum::body::Body::from(body.to_string())).await;
+    (r.status().as_u16(), r.body_text())
+}
+
+fn bearer_auth(key: &str) -> (&'static str, String) {
+    ("authorization", format!("Bearer {key}"))
+}
+
+/// #6048: only a WRONG current password spends the budget.
+#[tokio::test]
+async fn a_right_current_password_spends_nothing() {
+    let router = app().await.clone();
+    let u = user().await;
+    let (_, key) = token(&u).await;
+    for _ in 0..4 {
+        assert_eq!(change_password(router.clone(), &key, "wrong-password-here", "another-long-pass").await, 400);
+    }
+    // The right current password with a too-weak new one: 400 from umbral,
+    // over and over, and never a 429.
+    for _ in 0..6 {
+        assert_eq!(change_password(router.clone(), &key, PASSWORD, "x").await, 400);
+    }
+    assert_eq!(change_password(router.clone(), &key, PASSWORD, "a-brand-new-long-pass").await, 204);
+}
+
+/// #6050: umbral-auth also takes a form body; a form-encoded wrong guess
+/// spends the same budget.
+#[tokio::test]
+async fn form_encoded_guesses_spend_the_budget() {
+    let router = app().await.clone();
+    let u = user().await;
+    let (_, key) = token(&u).await;
+    for _ in 0..taskflow_projects::account::password_budget::MAX {
+        let (s, t) = change_password_raw(router.clone(), bearer_auth(&key), "application/x-www-form-urlencoded", "current_password=wrong-password-here&new_password=another-long-pass").await;
+        assert_eq!(s, 400, "{t}");
+    }
+    let (s, t) = change_password_raw(router.clone(), bearer_auth(&key), "application/x-www-form-urlencoded", &format!("current_password={PASSWORD}&new_password=a-brand-new-long-pass")).await;
+    assert_eq!(s, 429, "{t}");
+}
+
+/// #6050: what the middleware can't read never reaches the handler.
+#[tokio::test]
+async fn unreadable_bodies_are_refused_before_the_handler() {
+    let router = app().await.clone();
+    let u = user().await;
+    let (_, key) = token(&u).await;
+    let multipart = format!("--B\r\nContent-Disposition: form-data; name=\"current_password\"\r\n\r\n{PASSWORD}\r\n--B\r\nContent-Disposition: form-data; name=\"new_password\"\r\n\r\na-brand-new-long-pass\r\n--B--\r\n");
+    for (ct, body) in [
+        ("multipart/form-data; boundary=B", multipart.as_str()),
+        ("text/plain", "current_password=x"),
+        ("application/json", "{\"new_password\":\"a-brand-new-long-pass\"}"),
+        ("application/json", "not json"),
+    ] {
+        let (s, t) = change_password_raw(router.clone(), bearer_auth(&key), ct, body).await;
+        assert_eq!(s, 400, "{ct}: {t}");
+        assert!(t.contains("\"invalid\""), "the middleware's own refusal: {t}");
+    }
+    let big = format!("{{\"current_password\":\"{PASSWORD}\",\"new_password\":\"a-brand-new-long-pass\",\"pad\":\"{}\"}}", "x".repeat(70 * 1024));
+    assert_eq!(change_password_raw(router.clone(), bearer_auth(&key), "application/json", &big).await.0, 400);
+    // None of it changed the password.
+    assert_eq!(change_password(router.clone(), &key, PASSWORD, "a-brand-new-long-pass").await, 204);
+}
+
+/// #6048: a cookie-session caller spends the same per-user budget.
+#[tokio::test]
+async fn cookie_session_guesses_spend_the_budget() {
+    let router = app().await.clone();
+    let u = user().await;
+    let (_, key) = token(&u).await;
+    let session = umbral_sessions::create_session(Some(u.id.to_string()), None).await.expect("session");
+    for _ in 0..taskflow_projects::account::password_budget::MAX {
+        change_password_raw(router.clone(), ("cookie", format!("umbral_session={session}")), "application/json", "{\"current_password\":\"wrong-password-here\",\"new_password\":\"another-long-pass\"}").await;
+    }
+    assert_eq!(change_password(router.clone(), &key, PASSWORD, "a-brand-new-long-pass").await, 429, "the bearer shares the user's budget");
+}
