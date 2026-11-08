@@ -169,6 +169,24 @@ pub fn subscribe() {
                 }
             }
         });
+
+        // Chat threads: a deleted root releases its replies into the channel
+        // (see `threads::release_replies_of`). Both delete paths.
+        umbral::signals::subscribe_async("post_delete:taskflow_agent_message", |payload| {
+            let id = payload["instance"]["id"].as_i64();
+            async move {
+                if let Some(id) = id {
+                    crate::threads::release_replies_of(&[id]).await;
+                }
+            }
+        });
+        umbral::signals::subscribe_async("bulk_post_delete:taskflow_agent_message", |payload| {
+            let ids: Vec<i64> = payload["ids"]
+                .as_array()
+                .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+                .unwrap_or_default();
+            async move { crate::threads::release_replies_of(&ids).await }
+        });
     });
 }
 

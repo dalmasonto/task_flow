@@ -768,6 +768,8 @@ async fn notify_ruling(d: &TaskflowDecision, label: &str, user: i64, user_label:
     let asker = d.asked_by_agent.as_ref().map(|a| a.id());
     let _ = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),

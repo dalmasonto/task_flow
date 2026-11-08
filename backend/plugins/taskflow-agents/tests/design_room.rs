@@ -141,6 +141,8 @@ async fn mint_agent(
 async fn seed_flagged_message(project: i64, channel: i64, is_design: bool) -> i64 {
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),

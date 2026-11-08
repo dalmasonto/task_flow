@@ -775,6 +775,8 @@ pub async fn seed_message(project: i64, channel: i64) -> i64 {
     let n = seq();
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),

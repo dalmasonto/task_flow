@@ -381,6 +381,19 @@ pub struct TaskflowAgentMessage {
     /// reads prose.
     #[umbral(noedit, string, max_length = 20_000)]
     pub questions: Option<String>,
+    /// Chat threads: the root message this one is a thread reply under, or
+    /// null for an ordinary message. Always a ROOT (a message whose own
+    /// `thread_root` is null) in the SAME channel; both send paths check that,
+    /// so threads are one level deep. A bare id like `reply_to`.
+    #[umbral(noedit, index)]
+    pub thread_root: Option<i64>,
+    /// Chat threads: whether this message shows in the channel feed. True for
+    /// every ordinary message and for a thread reply sent with `also_send`;
+    /// false for a thread-only reply, which lives in its thread panel and
+    /// reaches only its thread's participants. **Derived at create, never
+    /// accepted**, so the feed can page exactly on `?in_channel=true`.
+    #[umbral(noedit, default = "true")]
+    pub in_channel: bool,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

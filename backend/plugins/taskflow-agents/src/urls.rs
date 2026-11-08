@@ -73,6 +73,17 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/attachments",
             get(views::list_channel_attachments),
         )
+        // Chat threads: one thread (root + replies), and reply counts for the
+        // roots on screen. The agent twin reads the same thread.
+        .route(
+            "/api/taskflow/channels/{channel}/messages/{message}/thread",
+            get(crate::threads::get_thread),
+        )
+        .route(
+            "/api/taskflow/agents/channels/{channel}/messages/{message}/thread",
+            get(crate::threads::agent_get_thread),
+        )
+        .route("/api/taskflow/channels/{channel}/threads", get(crate::threads::get_summaries))
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))

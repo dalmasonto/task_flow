@@ -61,6 +61,8 @@ async fn report_prompt(app: &TestApp, key: &str, session: i64, fingerprint: &str
 async fn user_message(project: i64, channel: i64, user: i64) {
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),

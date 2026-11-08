@@ -144,6 +144,8 @@ pub async fn dispatch_comments(
 
     let message = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: agent.project.clone(),
             channel: ForeignKey::new(channel),
@@ -266,6 +268,8 @@ pub async fn send_prompt(
 
     let message = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: agent.project.clone(),
             channel: ForeignKey::new(channel),

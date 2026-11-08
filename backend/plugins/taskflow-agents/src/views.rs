@@ -96,6 +96,12 @@ pub struct SendMessageInput {
     /// answers come back as an ordinary reply — nothing else is stored.
     #[serde(default)]
     pub questions: Option<serde_json::Value>,
+    /// Chat threads: post as a reply in this root's thread (same channel).
+    #[serde(default)]
+    pub thread_root: Option<i64>,
+    /// Chat threads: a thread reply that ALSO shows in the channel feed.
+    #[serde(default)]
+    pub also_send: bool,
 }
 
 /// The single attachment projection, shared by every path that returns one.
@@ -305,6 +311,28 @@ fn message_json(
     Ok(value)
 }
 
+/// Serialize a set of messages with their own attachments, in ONE attachment
+/// query (never N+1). Order is kept.
+pub(crate) async fn messages_json(messages: &[TaskflowAgentMessage]) -> Result<Vec<serde_json::Value>, StatusCode> {
+    let ids: Vec<i64> = messages.iter().map(|m| m.id).collect();
+    let all = if ids.is_empty() {
+        Vec::new()
+    } else {
+        TaskflowMessageAttachment::objects()
+            .filter(taskflow_message_attachment::MESSAGE.in_(&ids))
+            .fetch()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+    messages
+        .iter()
+        .map(|m| {
+            let own: Vec<TaskflowMessageAttachment> = all.iter().filter(|a| a.message.id() == m.id).cloned().collect();
+            message_json(m, &own)
+        })
+        .collect()
+}
+
 /// A 400 carrying WHY — the question-set validator's sentence. Both send paths
 /// answer this way for `questions`, because the caller is usually an agent that
 /// can fix its own call from the text.
@@ -402,6 +430,9 @@ pub async fn send_message(
     // channel (see the derivation after the channel is loaded). It is still
     // parsed so the parameter stays ACCEPTED — a client that still sends it is
     // neither rejected nor obeyed, and nothing about the request shape changes.
+    // Chat threads: captured beside the tuple (both transports set them).
+    let mut thread_root_in: Option<i64> = None;
+    let mut also_send_in = false;
     let (
         channel_id,
         body_markdown,
@@ -450,6 +481,8 @@ pub async fn send_message(
                 "reply_to" => reply_field = Some(value),
                 // #644: the same JSON as the JSON transport's object field.
                 "questions" => questions_field = Some(value),
+                "thread_root" => thread_root_in = parse_reply_field(Some(value.as_str())),
+                "also_send" => also_send_in = value.trim().eq_ignore_ascii_case("true"),
                 _ => {}
             }
         }
@@ -509,6 +542,8 @@ pub async fn send_message(
         // is a 400 (the old `Json` extractor rejected with a 4xx too).
         let input: SendMessageInput =
             serde_json::from_slice(&raw_body).map_err(|_| StatusCode::BAD_REQUEST)?;
+        thread_root_in = input.thread_root;
+        also_send_in = input.also_send;
         (
             input.channel,
             input.body_markdown,
@@ -624,6 +659,8 @@ pub async fn send_message(
     // #317: a reply must answer a message in this same channel. Checked
     // after membership, so a non-member cannot probe which ids a room holds.
     let reply_to = validate_reply_to(channel.id, reply_to).await?;
+    // Chat threads: the root must be a root of THIS channel (same reason).
+    let placement = crate::threads::placement(channel.id, thread_root_in, also_send_in).await?;
 
     // Idempotency: the same nonce in the same channel is the same message.
     // A retry after a dropped response must not double-post — and must not
@@ -672,12 +709,28 @@ pub async fn send_message(
         }
         None => (None, target_agent),
     };
+    // Chat threads: a thread reply's targets are computed, never broadcast.
+    let (targets_json, target_agent) = match placement.thread_root {
+        None => (targets_json, target_agent),
+        Some(root) => {
+            let mut named: Vec<MessageTarget> = targets_json
+                .as_deref()
+                .and_then(|t| serde_json::from_str(t).ok())
+                .unwrap_or_default();
+            named.extend(crate::threads::mentions_in(body));
+            let list = crate::threads::thread_targets(&channel, root, crate::threads::Sender::User(user_id), named).await?;
+            let first_agent = list.iter().find(|t| t.kind == "agent").map(|t| t.id);
+            (serde_json::to_string(&list).ok(), first_agent)
+        }
+    };
 
     // Every identity-bearing field below is derived, never accepted: `project`
     // and `task` from the channel, the sender trio from the authenticated
     // caller's own membership row.
     let message = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: placement.thread_root,
+            in_channel: placement.in_channel,
             id: 0,
             project: channel.project.clone(),
             channel: ForeignKey::new(channel.id),
@@ -1788,6 +1841,12 @@ pub struct AgentSendMessageInput {
     /// answers come back as an ordinary reply — nothing else is stored.
     #[serde(default)]
     pub questions: Option<serde_json::Value>,
+    /// Chat threads: post as a reply in this root's thread (same channel).
+    #[serde(default)]
+    pub thread_root: Option<i64>,
+    /// Chat threads: a thread reply that ALSO shows in the channel feed.
+    #[serde(default)]
+    pub also_send: bool,
 }
 
 /// `POST /api/taskflow/agents/agent/messages` (agent-authed) — the trusted write
@@ -1825,6 +1884,9 @@ pub async fn send_message_as_agent(
     // channel. Still parsed so the parameter stays ACCEPTED (Task 3 rewrites the
     // MCP text that describes it) — an agent that still sends it is neither
     // rejected nor obeyed.
+    // Chat threads: captured beside the tuple (both transports set them).
+    let mut thread_root_in: Option<i64> = None;
+    let mut also_send_in = false;
     let (
         channel_id,
         body_markdown,
@@ -1865,6 +1927,8 @@ pub async fn send_message_as_agent(
                 "reply_to" => reply_field = Some(value),
                 // #644: the same JSON as the JSON transport's object field.
                 "questions" => questions_field = Some(value),
+                "thread_root" => thread_root_in = parse_reply_field(Some(value.as_str())),
+                "also_send" => also_send_in = value.trim().eq_ignore_ascii_case("true"),
                 _ => {}
             }
         }
@@ -1910,6 +1974,8 @@ pub async fn send_message_as_agent(
     } else {
         let input: AgentSendMessageInput =
             serde_json::from_slice(&raw_body).map_err(|_| StatusCode::BAD_REQUEST)?;
+        thread_root_in = input.thread_root;
+        also_send_in = input.also_send;
         (
             input.channel,
             input.body_markdown,
@@ -1970,6 +2036,8 @@ pub async fn send_message_as_agent(
     // #317: a reply must answer a message in this same channel. Checked
     // after membership, so a non-member cannot probe which ids a room holds.
     let reply_to = validate_reply_to(channel.id, reply_to).await?;
+    // Chat threads: the root must be a root of THIS channel (same reason).
+    let placement = crate::threads::placement(channel.id, thread_root_in, also_send_in).await?;
 
     // Idempotency: the same nonce in the same channel is the same message.
     if let Some(nonce) = client_nonce.as_deref().filter(|n| !n.is_empty()) {
@@ -1991,10 +2059,24 @@ pub async fn send_message_as_agent(
         }
     }
 
+    // Chat threads: a thread reply's targets are computed, never broadcast;
+    // an agent names people and agents by mention chips in its body.
+    let (targets_json, target_agent) = match placement.thread_root {
+        None => (None, None),
+        Some(root) => {
+            let named = crate::threads::mentions_in(body);
+            let list = crate::threads::thread_targets(&channel, root, crate::threads::Sender::Agent(agent.agent_id), named).await?;
+            let first_agent = list.iter().find(|t| t.kind == "agent").map(|t| t.id);
+            (serde_json::to_string(&list).ok(), first_agent)
+        }
+    };
+
     // The sender trio is derived from the authenticated agent, never accepted:
     // `sender_kind = agent`, the agent id, and its display name as the label.
     let message = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: placement.thread_root,
+            in_channel: placement.in_channel,
             id: 0,
             project: channel.project.clone(),
             channel: ForeignKey::new(channel.id),
@@ -2002,8 +2084,8 @@ pub async fn send_message_as_agent(
             sender_kind: TaskflowChannelMemberKind::Agent,
             sender_user: None,
             sender_agent: Some(ForeignKey::new(agent.agent_id)),
-            target_agent: None,
-            targets: None,
+            target_agent: target_agent.map(ForeignKey::new),
+            targets: targets_json,
             sender_label: agent.display_name.clone(),
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
@@ -3936,6 +4018,8 @@ async fn apply_review(
             }
             TaskflowAgentMessage::objects()
                 .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
                     id: 0,
                     project: channel.project.clone(),
                     channel: ForeignKey::new(channel.id),
@@ -4629,6 +4713,15 @@ pub async fn list_messages_as_agent(
                 | taskflow_agent_message::SENDER_AGENT.ne(agent.agent_id),
         );
     }
+    // Chat threads: a thread-only reply (`in_channel = false`) reaches only its
+    // thread's agent targets, and its sender. Filtered in SQL so the page size
+    // and `unread_count` stay exact. The needle is the exact JSON the send
+    // paths write for one agent target.
+    query = query.filter(
+        taskflow_agent_message::IN_CHANNEL.eq(true)
+            | taskflow_agent_message::SENDER_AGENT.eq(agent.agent_id)
+            | taskflow_agent_message::TARGETS.contains(crate::threads::agent_target_needle(agent.agent_id)),
+    );
     let messages = query
         .order_by(taskflow_agent_message::ID.asc())
         .limit(effective_limit(params.limit))

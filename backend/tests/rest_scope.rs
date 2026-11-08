@@ -355,6 +355,8 @@ async fn make_channel_member(project: i64, channel: i64, user: i64) {
 async fn make_message(project: i64, channel: i64, body: &str) -> i64 {
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),

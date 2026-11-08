@@ -31,6 +31,8 @@ async fn channel(project: i64, kind: TaskflowChannelKind) -> i64 {
 async fn message(project: i64, channel: i64, agent: i64, body: &str, targets: Option<Value>, questions: Option<Value>) -> i64 {
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0, project: ForeignKey::new(project), channel: ForeignKey::new(channel), task: None,
             sender_kind: TaskflowChannelMemberKind::Agent, sender_user: None, sender_agent: Some(ForeignKey::new(agent)),
             target_agent: None, targets: targets.map(|t| t.to_string()), sender_label: "Agent".into(),

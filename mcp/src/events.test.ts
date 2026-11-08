@@ -156,6 +156,27 @@ describe("shouldDeliver", () => {
   });
 });
 
+describe("shouldDeliver: chat threads", () => {
+  const threadOnly = { thread_root: 40, in_channel: false };
+  it("delivers a thread-only reply only to its agent targets", () => {
+    expect(shouldDeliver(message({ ...threadOnly, targets: [{ kind: "agent", id: 3 }] }), 3)).toBe(true);
+    expect(shouldDeliver(message({ ...threadOnly, targets: [{ kind: "agent", id: 9 }] }), 3)).toBe(false);
+    expect(shouldDeliver(message({ ...threadOnly, targets: [{ kind: "user", id: 3 }] }), 3)).toBe(false);
+    // Never a broadcast: no targets reaches no agent.
+    expect(shouldDeliver(message({ ...threadOnly, targets: [] }), 3)).toBe(false);
+  });
+
+  it("delivers an also-sent thread reply like any channel message", () => {
+    expect(shouldDeliver(message({ thread_root: 40, in_channel: true, targets: [{ kind: "agent", id: 9 }] }), 3)).toBe(true);
+  });
+
+  it("tags the notice with the thread to answer in", () => {
+    const out = formatIncoming(message({ project: 2, channel: 63, id: 41, thread_root: 40, in_channel: true }), []);
+    expect(out).toContain("thread=40");
+    expect(formatIncoming(message({ project: 2, channel: 63, id: 41 }), [])).not.toContain("thread=");
+  });
+});
+
 describe("canActOnMessage", () => {
   it("lets any agent act on a broadcast (no targets)", () => {
     expect(canActOnMessage(message(), 3)).toBe(true);
