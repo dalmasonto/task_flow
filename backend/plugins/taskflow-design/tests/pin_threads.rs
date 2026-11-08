@@ -149,3 +149,39 @@ async fn a_component_comment_takes_no_version_and_other_projects_get_nothing() {
         404
     );
 }
+
+/// Process-wide count of `post_save:design_comment` events per comment id.
+fn saves() -> &'static std::sync::Mutex<std::collections::HashMap<i64, usize>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<i64, usize>>> = std::sync::OnceLock::new();
+    S.get_or_init(|| {
+        umbral::signals::subscribe_async("post_save:design_comment", |payload| {
+            let id = payload["instance"]["id"].as_i64();
+            async move {
+                if let Some(id) = id {
+                    *saves().lock().unwrap().entry(id).or_default() += 1;
+                }
+            }
+        });
+        std::sync::Mutex::new(std::collections::HashMap::new())
+    })
+}
+
+/// #1123 review: the first reply must not write the comment row back whole. A
+/// whole-row save of the row the handler loaded would revert a resolve or a
+/// dispatch that landed in between (the #1097 class). That save is exactly
+/// what fires `post_save`; setting `thread_id` alone does not. So the first
+/// reply must fire no `post_save` on its comment, and still set `thread_id`.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_reply_sets_thread_id_without_rewriting_the_comment_row() {
+    let app = TestApp::new().await;
+    let _ = saves();
+    let (user, project) = app.create_member_with_project().await;
+    let id = comment(&app, user.id, project, None).await;
+    let before = saves().lock().unwrap().get(&id).copied().unwrap_or(0);
+    let r = app.post_json_as(user.id, &format!("/api/design/{project}/comments/{id}/replies"), &json!({ "body": "first" })).await;
+    assert_eq!(r.status(), 201, "{}", r.text());
+    let after = saves().lock().unwrap().get(&id).copied().unwrap_or(0);
+    assert_eq!(after, before, "the first reply re-saved the whole comment row");
+    let t = app.get_as(user.id, &format!("/api/design/{project}/comments/{id}/thread")).await.json();
+    assert_eq!(t["root"]["thread_id"], format!("c{id}"));
+}

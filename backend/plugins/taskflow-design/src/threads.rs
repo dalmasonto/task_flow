@@ -130,10 +130,20 @@ async fn add(comment: DesignComment, author: Author, input: ReplyInput) -> Reply
         .await
         .map_err(internal)?;
 
+    // Set ONLY `thread_id`, and only while it is still null (#1123 review): a
+    // whole-row save of the row loaded above would revert a resolve or a
+    // dispatch that landed in between (the #1097 lost-update class). The
+    // null guard also makes two racing first replies idempotent. No post_save
+    // is needed: the reply's own realtime event drives the thread refetch, and
+    // the id is deterministic.
     if comment.thread_id.is_none() {
-        let mut root = comment.clone();
-        root.thread_id = Some(format!("c{}", comment.id));
-        DesignComment::objects().save(root).await.map_err(internal)?;
+        let mut v = serde_json::Map::new();
+        v.insert("thread_id".into(), json!(format!("c{}", comment.id)));
+        DesignComment::objects()
+            .filter(design_comment::ID.eq(comment.id) & design_comment::THREAD_ID.is_null())
+            .update_values(v)
+            .await
+            .map_err(internal)?;
     }
 
     // A person's reply reaches the agent the comment was sent to. Flattened by

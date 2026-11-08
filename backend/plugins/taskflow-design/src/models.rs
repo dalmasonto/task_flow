@@ -223,8 +223,9 @@ pub struct DesignComment {
 }
 
 /// #1123: a reply in a design comment's pin thread. Append-only. Written ONLY
-/// by `threads.rs`; the author comes from the auth gate. Auto-REST serves it
-/// read-only and project-scoped.
+/// by `threads.rs`; the author comes from the auth gate. NOT on auto-REST (like
+/// every design table since #1090): read it through
+/// `GET .../comments/{id}/thread`. Do not add it to `include_only`.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
 #[umbral(indexes = [["comment", "id"]])]
 pub struct DesignCommentReply {
