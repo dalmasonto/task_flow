@@ -72,6 +72,9 @@ pub mod password_budget {
     use std::time::{Duration, Instant};
 
     pub const MAX: u32 = 5;
+    /// #6041: every password-gated route spends from this one budget, so a
+    /// stolen session gets `MAX` guesses in total, not `MAX` per route.
+    pub const SCOPE: &str = "password";
     pub const WINDOW: Duration = Duration::from_secs(15 * 60);
 
     fn map() -> &'static Mutex<HashMap<(&'static str, i64), (Instant, u32)>> {
@@ -195,7 +198,7 @@ pub async fn patch_profile(RequireAuth(user): RequireAuth<i64>, Json(input): Jso
             validate_email(&email).map_err(|why| err(StatusCode::BAD_REQUEST, "invalid_email", "email", &format!("Email: {why}.")))?;
             // Password before the duplicate check, so an unauthenticated
             // session can't use this route to probe which emails exist.
-            if !password_budget::allowed("profile_email", user) {
+            if !password_budget::allowed(password_budget::SCOPE, user) {
                 return Err(err(StatusCode::TOO_MANY_REQUESTS, "too_many_attempts", "current_password", "Too many wrong passwords. Try again in 15 minutes."));
             }
             let ok = match input.current_password.as_deref() {
@@ -203,7 +206,7 @@ pub async fn patch_profile(RequireAuth(user): RequireAuth<i64>, Json(input): Jso
                 _ => false,
             };
             if !ok {
-                password_budget::spend("profile_email", user);
+                password_budget::spend(password_budget::SCOPE, user);
                 return Err(err(StatusCode::FORBIDDEN, "password_required", "current_password", "Enter your current password to change your email."));
             }
             if taken_by_other("email", &email, user).await? {

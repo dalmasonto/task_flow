@@ -626,8 +626,6 @@ pub struct DisconnectBody {
     pub password: Option<String>,
 }
 
-const BUDGET: &str = "github_disconnect";
-
 /// `DELETE /api/taskflow/github/me` `{password}` — #1135: unlink GitHub.
 ///
 /// Needs the account password (403 `password_required`): an account made by
@@ -646,9 +644,10 @@ pub async fn delete_me(
         .await
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "internal"))?
         .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "unauthorized"))?;
-    // #6036: the same per-user guess budget as the profile's email change,
-    // so a stolen session can't brute-force the password through here.
-    if !password_budget::allowed(BUDGET, user_id) {
+    // #6036: the per-user guess budget every password-gated route shares
+    // (the email change too), so a stolen session can't brute-force the
+    // password through here.
+    if !password_budget::allowed(password_budget::SCOPE, user_id) {
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
             Json(json!({ "error": "too_many_attempts", "detail": "Too many wrong passwords. Try again in 15 minutes." })),
@@ -659,7 +658,7 @@ pub async fn delete_me(
         _ => false,
     };
     if !ok {
-        password_budget::spend(BUDGET, user_id);
+        password_budget::spend(password_budget::SCOPE, user_id);
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({
