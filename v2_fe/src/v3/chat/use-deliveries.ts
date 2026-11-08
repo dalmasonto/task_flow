@@ -1,11 +1,13 @@
 /// #5988 item 7: delivery receipts for the open room's loaded messages.
 ///
 /// A receipt is written AFTER its message (the agent's MCP types it into the
-/// pane, then reports), so besides reading on each new set of messages and on
-/// tab focus, this re-reads once ~10 s after the newest message arrived.
-/// Empty on a server without the route.
+/// pane, then reports). Live (BATCH_LIVE), the `message_deliveries` group
+/// says when to re-read; until then, a re-read ~10 s after the newest message.
+/// Tab focus re-reads either way, for a tab that missed an event. Empty on a
+/// server without the route.
 import { useEffect, useState } from "react"
 
+import { BATCH_LIVE, subscribeBatchEvents } from "@/lib/batch-live"
 import { fetchDeliveries, type Delivery } from "@/lib/deliveries-api"
 
 export const RECEIPT_SETTLE_MS = 10_000
@@ -19,7 +21,11 @@ export function useDeliveries(channel: number | null, messages: { id: number; cr
   useEffect(() => {
     const again = () => document.visibilityState === "visible" && setTick((n) => n + 1)
     document.addEventListener("visibilitychange", again)
-    return () => document.removeEventListener("visibilitychange", again)
+    const off = subscribeBatchEvents("deliveries", () => setTick((n) => n + 1))
+    return () => {
+      document.removeEventListener("visibilitychange", again)
+      off()
+    }
   }, [])
 
   useEffect(() => {
@@ -35,7 +41,7 @@ export function useDeliveries(channel: number | null, messages: { id: number; cr
   }, [channel, idsKey, tick])
 
   useEffect(() => {
-    if (!newest) return
+    if (!newest || BATCH_LIVE) return
     const due = newest + RECEIPT_SETTLE_MS - Date.now()
     if (due <= 0) return
     const t = setTimeout(() => setTick((n) => n + 1), due + 500)

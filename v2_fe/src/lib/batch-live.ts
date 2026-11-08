@@ -1,5 +1,5 @@
 /// The realtime groups the "migrate batch" backend adds (#5949 pins and
-/// reactions, 1b project statuses, #5988 typing). A group joins App's ONE
+/// reactions, 1b project statuses, #5988 typing and delivery receipts). A group joins App's ONE
 /// stream only once the backend serving it is deployed, so all of them sit
 /// behind BATCH_LIVE: flip it in the release after that deploy (dev: run vite
 /// with VITE_BATCH_LIVE=1 against a server that has them).
@@ -9,7 +9,7 @@
 export const BATCH_LIVE = import.meta.env.VITE_BATCH_LIVE === "1" || import.meta.env.VITE_TYPING_LIVE === "1"
 
 /// Suffixes are a contract with backend/src/realtime.rs.
-const SUFFIX = { pins: "message_pins", reactions: "message_reactions", statuses: "project_statuses" } as const
+const SUFFIX = { pins: "message_pins", reactions: "message_reactions", statuses: "project_statuses", deliveries: "message_deliveries" } as const
 export type BatchKind = keyof typeof SUFFIX
 
 export function batchGroups(projectId: number | string): string[] {
