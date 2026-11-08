@@ -49,6 +49,20 @@ impl Plugin for TaskflowOrgsPlugin {
                     }
                 }
             });
+            // The bulk path (bulk_create / update_values) carries ids only.
+            // Placing is idempotent (a linked project is skipped), so every id
+            // is safe to try; an edit of an already-placed project is a no-op.
+            umbral::signals::subscribe_async("bulk_post_save:taskflow_project", |payload| {
+                let ids: Vec<i64> = payload["ids"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
+                    .unwrap_or_default();
+                async move {
+                    for id in ids {
+                        service::place_project_id(id).await;
+                    }
+                }
+            });
         });
         // The backfill: every project with no org, at boot. Idempotent.
         if tokio::runtime::Handle::try_current().is_ok() {

@@ -15,6 +15,10 @@ use support::{TestApp, email_of, seed_member, seed_project};
 use taskflow_orgs::models::{TaskflowOrgInvite, TaskflowOrgProject, taskflow_org_invite, taskflow_org_project};
 use taskflow_orgs::service;
 
+fn support_seq() -> u64 {
+    umbral_testing::seq() as u64
+}
+
 async fn org_of(project: i64) -> i64 {
     service::org_of_project(project).await.unwrap().expect("project has an org")
 }
@@ -40,6 +44,29 @@ async fn a_new_project_lands_in_its_owners_personal_org_and_the_backfill_follows
     assert_eq!(mine["results"][0]["id"], org);
     assert_eq!(mine["results"][0]["my_role"], "owner");
     assert_eq!(mine["results"][0]["personal"], true);
+
+    // A project made through a bulk path is placed too (bulk_post_save).
+    let bulk_owner = app.create_user().await;
+    let n = support_seq();
+    let made = taskflow_projects::models::TaskflowProject::objects()
+        .bulk_create(vec![taskflow_projects::models::TaskflowProject {
+            id: 0, name: format!("Bulk {n}"), slug: format!("bulk-{n}"), description_markdown: String::new(),
+            repository_url: None, default_api_base_url: None, status: taskflow_projects::models::TaskflowProjectStatus::Active,
+            owner: Some(umbral::orm::ForeignKey::new(bulk_owner)), github_repo: None, github_linked_by: None,
+            github_default_branch: None, github_auto_mirror: false, agent_instructions_markdown: None,
+            agent_instructions_updated_at: None, created_at: None, updated_at: None,
+        }])
+        .await
+        .unwrap();
+    let bulk_id = taskflow_projects::models::TaskflowProject::objects()
+        .filter(taskflow_projects::models::taskflow_project::SLUG.eq(format!("bulk-{n}")))
+        .first()
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let _ = made;
+    assert_eq!(org_of(bulk_id).await, service::personal_org(bulk_owner).await.unwrap().id);
 
     // The backfill rule: the active owner-role MEMBER with the lowest id wins
     // over the `owner` column. Unlink a project and give it such a member.
