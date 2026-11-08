@@ -10,6 +10,9 @@ export type InboxItem =
   | (Base & { kind: "review_request"; review_request: number; task: number; requester_label: string; link: string | null; focus_markdown: string | null })
   | (Base & { kind: "daily_update"; daily_update: number; date: string; excerpt: string; drafted_by_label: string })
   | (Base & { kind: "mention"; message: number; channel: number; sender_label: string; sender_kind: string; snippet: string })
+  /// A message whose structured questions are aimed at you (or nobody) and
+  /// still have unanswered keys in `open`.
+  | (Base & { kind: "question"; message: number; channel: number; sender_label: string; sender_kind: string; snippet: string; open: string[] })
 
 export type InboxPage = { items: InboxItem[]; counts: { needs_you: number; mentions: number }; unread: number; seen_at: string | null }
 

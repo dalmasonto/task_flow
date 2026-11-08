@@ -201,7 +201,10 @@ export function AgentsPage() {
               ))}
             </div>
             <p className="text-sm text-muted-foreground">
-              {counts.live + counts.idle ? `${counts.live + counts.idle} of ${counts.all} online.` : "Nobody's online right now."}
+              {counts.live + counts.idle ? `${counts.live + counts.idle} of ${counts.all} online.` : "Nobody's online right now."}{" "}
+              <Link to="/v3/agents/launch" className="underline underline-offset-2 hover:text-foreground">
+                How to start one
+              </Link>
             </p>
           </div>
         ) : null}

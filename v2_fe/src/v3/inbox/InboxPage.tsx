@@ -6,7 +6,7 @@
 /// riding the active project's stream.
 import { useCallback, useEffect, useState } from "react"
 import { Link } from "react-router-dom"
-import { CalendarClockIcon, CheckCheckIcon, InboxIcon, MessageSquareIcon, ScaleIcon, ShieldCheckIcon } from "lucide-react"
+import { CalendarClockIcon, CheckCheckIcon, HelpCircleIcon, InboxIcon, MessageSquareIcon, ScaleIcon, ShieldCheckIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import type { TaskflowWorkspace } from "@/lib/taskflow-api"
@@ -147,6 +147,21 @@ export function InboxPage() {
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{i.excerpt}</p>
           </Row>
         )
+      case "question":
+        return (
+          <Row
+            key={`q${i.message}`}
+            item={i}
+            icon={i.sender_kind === "agent" ? <ActorAvatar model={guessModel(i.sender_label)} name={i.sender_label} size="md" /> : <Glyph><HelpCircleIcon /></Glyph>}
+            title={`${i.sender_label} asked you ${i.open.length > 1 ? `${i.open.length} questions` : "a question"}`}
+            meta={when}
+          >
+            <p className="mt-1 line-clamp-2 text-sm">{i.snippet}</p>
+            <Button size="sm" className="mt-2" render={<Link to={`/v3/chat/channel-${i.channel}`} />} nativeButton={false}>
+              Answer in chat
+            </Button>
+          </Row>
+        )
       case "mention":
         return (
           <Row key={`m${i.message}`} item={i} icon={<Glyph><MessageSquareIcon /></Glyph>} title={`${i.sender_label} mentioned you`} meta={when}>
@@ -234,7 +249,7 @@ export function InboxPage() {
                 <InboxIcon />
               </EmptyMedia>
               <EmptyTitle>{tab === "needs_you" ? "Nothing needs you" : tab === "mentions" ? "No mentions" : "Nothing in the last two weeks"}</EmptyTitle>
-              <EmptyDescription>Permission prompts, rulings, review requests, daily updates and mentions land here.</EmptyDescription>
+              <EmptyDescription>Permission prompts, questions, rulings, review requests, daily updates and mentions land here.</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}
