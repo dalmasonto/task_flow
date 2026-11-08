@@ -904,46 +904,32 @@ pub async fn update_comment(
 ) -> Result<Json<DesignComment>, StatusCode> {
     ensure_member(user_id, project_id).await?;
 
-    let mut row = DesignComment::objects()
-        .filter(
-            design_comment::PROJECT.eq(project_id) & design_comment::ID.eq(comment_id),
-        )
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
+    // #1131: write only the columns this PATCH names, never the whole row, so
+    // a concurrent resolve, dispatch or reply is not reverted. A person is
+    // authoritative over status (they may reopen or dismiss anything), so no
+    // status guard; the columns they did not touch stay as others left them.
+    let mut v = serde_json::Map::new();
     if let Some(status) = input.status {
-        row.status = status;
-        if status == CommentStatus::Addressed && row.resolution_note.is_none() {
-            row.resolution_note = Some("Addressed.".into());
-        }
+        v.insert("status".into(), json!(crate::comment_write::status_str(status)));
     }
     if let Some(scope) = input.scope {
-        row.scope = scope;
+        v.insert("scope".into(), serde_json::to_value(scope).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?);
     }
-    if let Some(body) = input
-        .body
-        .map(|b| b.trim().to_string())
-        .filter(|b| !b.is_empty())
-    {
-        row.body = body.chars().take(MAX_BODY_CHARS).collect();
+    if let Some(body) = input.body.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()) {
+        v.insert("body".into(), json!(body.chars().take(MAX_BODY_CHARS).collect::<String>()));
     }
-    if let Some(note) = input
-        .resolution_note
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty())
-    {
-        row.resolution_note = Some(note.chars().take(2000).collect());
+    let note = input.resolution_note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    if let Some(note) = &note {
+        v.insert("resolution_note".into(), json!(note.chars().take(2000).collect::<String>()));
     }
     if let Some(orphaned) = input.orphaned {
-        row.orphaned = orphaned;
+        v.insert("orphaned".into(), json!(orphaned));
     }
-
-    let saved = DesignComment::objects()
-        .save(row)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Addressed with no note: default one, only where none exists yet.
+    if input.status == Some(CommentStatus::Addressed) && note.is_none() {
+        crate::comment_write::default_note(project_id, comment_id, "Addressed.").await.map_err(StatusCode::from)?;
+    }
+    let saved = crate::comment_write::write(project_id, comment_id, None, v).await.map_err(StatusCode::from)?;
     Ok(Json(saved))
 }
 

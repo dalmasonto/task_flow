@@ -1952,23 +1952,20 @@ pub async fn resolve_comment(
     if note.is_empty() {
         return Err(StatusCode::BAD_REQUEST.into());
     }
-    let mut row = DesignComment::objects()
-        .filter(
-            design_comment::PROJECT.eq(agent.project_id)
-                & design_comment::ID.eq(comment_row_id),
-        )
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    row.status = CommentStatus::Addressed;
-    row.resolution_note = Some(note.chars().take(2000).collect());
-
-    let saved = DesignComment::objects()
-        .save(row)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // #1131: a compare-and-set, never a whole-row save. An agent may resolve
+    // an open or sent comment, or re-resolve one it already addressed (a new
+    // note). A comment a person DISMISSED meanwhile is a 409, not overwritten.
+    let mut v = serde_json::Map::new();
+    v.insert("status".into(), json!(crate::comment_write::status_str(CommentStatus::Addressed)));
+    v.insert("resolution_note".into(), json!(note.chars().take(2000).collect::<String>()));
+    let saved = crate::comment_write::write(
+        agent.project_id,
+        comment_row_id,
+        Some(&[CommentStatus::Open, CommentStatus::Sent, CommentStatus::Addressed]),
+        v,
+    )
+    .await
+    .map_err(StatusCode::from)?;
     Ok(Json(json!({ "ok": true, "comment": saved })))
 }
 

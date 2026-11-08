@@ -221,6 +221,19 @@ impl TestApp {
         }
     }
 
+    /// #1131: a JSON PATCH (TestClient has no typed helper for the verb).
+    pub async fn patch_json_as(&self, user_id: i64, path: &str, body: &Value) -> TestResponse {
+        self.set_auth(user_id);
+        self.client.set_default_header(
+            http::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        let bytes = serde_json::to_vec(body).expect("serialize body");
+        TestResponse {
+            inner: self.client.send(http::Method::PATCH, path, axum::body::Body::from(bytes)).await,
+        }
+    }
+
     pub async fn get_as(&self, user_id: i64, path: &str) -> TestResponse {
         self.set_auth(user_id);
         TestResponse {
