@@ -2,7 +2,7 @@
 //! What must hold: username/email follow the signup rules and are unique
 //! case-insensitively (409 username_taken / email_taken); an email change
 //! needs the current password, and drops verification; the timezone must be
-//! IANA and the dictation language a BCP-47 shape; a settings save writes only
+//! IANA; a settings save writes only
 //! what it names, so two saves of different fields don't revert each other.
 
 use serde_json::json;
@@ -70,13 +70,13 @@ async fn the_profile_follows_the_signup_rules_and_guards_the_email() {
 }
 
 #[tokio::test]
-async fn timezone_and_dictation_language_are_validated_and_saves_dont_clobber() {
+async fn the_timezone_is_validated_and_saves_dont_clobber() {
     let app = TestApp::new().await;
     let me = app.create_user().await;
-    let r = app.post_body_as(me.id, SETTINGS, json!({ "timezone": "Africa/Nairobi", "dictation_language": "en-KE" })).await;
+    let r = app.post_body_as(me.id, SETTINGS, json!({ "timezone": "Africa/Nairobi" })).await;
     assert_eq!(r.status(), 200, "{}", r.text());
     assert_eq!(r.json()["timezone"], "Africa/Nairobi");
-    for body in [json!({ "timezone": "Mars/Olympus" }), json!({ "dictation_language": "english!" }), json!({ "dictation_language": "e" })] {
+    for body in [json!({ "timezone": "Mars/Olympus" }), json!({ "timezone": "Not a zone" })] {
         let r = app.post_body_as(me.id, SETTINGS, body.clone()).await;
         assert_eq!(r.status(), 400, "{body}");
     }
@@ -84,7 +84,6 @@ async fn timezone_and_dictation_language_are_validated_and_saves_dont_clobber() 
     let r = app.post_body_as(me.id, SETTINGS, json!({ "theme": "dark" })).await.json();
     assert_eq!(r["theme"], "dark");
     assert_eq!(r["timezone"], "Africa/Nairobi");
-    assert_eq!(r["dictation_language"], "en-KE");
     let r = app.post_body_as(me.id, SETTINGS, json!({ "timezone": null })).await.json();
     assert!(r["timezone"].is_null());
     assert_eq!(r["theme"], "dark");

@@ -30,20 +30,6 @@
         "is_string_repr": true,
         "max_length": 64
       }
-    },
-    {
-      "kind": "AddColumn",
-      "table": "taskflow_user_settings",
-      "column": {
-        "name": "dictation_language",
-        "ty": "Text",
-        "primary_key": false,
-        "nullable": true,
-        "noform": false,
-        "noedit": false,
-        "is_string_repr": true,
-        "max_length": 35
-      }
     }
   ],
   "snapshot_after": {
@@ -788,16 +774,6 @@
             "noedit": false,
             "is_string_repr": true,
             "max_length": 64
-          },
-          {
-            "name": "dictation_language",
-            "ty": "Text",
-            "primary_key": false,
-            "nullable": true,
-            "noform": false,
-            "noedit": false,
-            "is_string_repr": true,
-            "max_length": 35
           },
           {
             "name": "created_at",

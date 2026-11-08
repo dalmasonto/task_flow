@@ -221,9 +221,6 @@ pub struct TaskflowUserSettings {
     /// read it through `whoami` to write dates in the person's time.
     #[umbral(string, max_length = 64)]
     pub timezone: Option<String>,
-    /// #1134: BCP-47 tag for dictation ("en-KE").
-    #[umbral(string, max_length = 35)]
-    pub dictation_language: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]

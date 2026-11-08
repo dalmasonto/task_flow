@@ -724,7 +724,6 @@ async fn load_or_create_settings(user_id: i64) -> Result<TaskflowUserSettings, S
             default_project: None,
             full_name: None,
             timezone: None,
-            dictation_language: None,
             created_at: None,
             updated_at: None,
         })
@@ -777,25 +776,11 @@ pub struct UpdateSettingsInput {
     /// #1134: IANA zone; `null` clears it.
     #[serde(default, deserialize_with = "double_option")]
     pub timezone: Option<Option<String>>,
-    /// #1134: BCP-47 tag; `null` clears it.
-    #[serde(default, deserialize_with = "double_option")]
-    pub dictation_language: Option<Option<String>>,
 }
 
 /// #1134: an IANA zone chrono-tz knows ("Africa/Nairobi", "UTC").
 pub fn valid_timezone(tz: &str) -> bool {
     tz.len() <= 64 && tz.parse::<chrono_tz::Tz>().is_ok()
-}
-
-/// #1134: a plain BCP-47 shape: a 2–3 letter language, then subtags of 2–8
-/// letters or digits ("en", "en-KE", "sw-TZ", "zh-Hant-TW"). Not a registry check.
-pub fn valid_language_tag(tag: &str) -> bool {
-    let mut parts = tag.split('-');
-    let Some(lang) = parts.next() else { return false };
-    tag.len() <= 35
-        && (2..=3).contains(&lang.len())
-        && lang.chars().all(|c| c.is_ascii_alphabetic())
-        && parts.all(|p| (2..=8).contains(&p.len()) && p.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
 fn settings_internal<E>(_: E) -> (StatusCode, Json<serde_json::Value>) {
@@ -836,13 +821,6 @@ pub async fn update_user_settings(
             return Err(settings_bad("timezone", "not an IANA time zone, e.g. Africa/Nairobi"));
         }
         v.insert("timezone".into(), json!(tz));
-    }
-    if let Some(lang) = input.dictation_language {
-        let lang = lang.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
-        if lang.as_deref().is_some_and(|t| !valid_language_tag(t)) {
-            return Err(settings_bad("dictation_language", "a language tag such as en or en-KE"));
-        }
-        v.insert("dictation_language".into(), json!(lang));
     }
     v.insert("updated_at".into(), json!(Utc::now()));
     TaskflowUserSettings::objects()
