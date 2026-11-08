@@ -41,6 +41,8 @@ use taskflow_design::TaskflowDesignPlugin;
 use taskflow_github::TaskflowGithubPlugin;
 use taskflow_toolbox::TaskflowToolboxPlugin;
 use taskflow_decisions::TaskflowDecisionsPlugin;
+use taskflow_usage::TaskflowUsagePlugin;
+use taskflow_inbox::TaskflowInboxPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
 use umbral::prelude::*;
@@ -210,6 +212,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // over auto-REST (rest.rs); every write goes through its own routes,
         // and only humans rule.
         .plugin(TaskflowDecisionsPlugin::default())
+        // #1115: self-reported usage and cost. Read-only over auto-REST; agents
+        // report counts only (no transcript content), the server prices them.
+        .plugin(TaskflowUsagePlugin::default())
+        // #1116: the inbox — prompts, decisions, questions and mentions that
+        // need a person. Gathers existing rows; its read cursor is not on REST.
+        .plugin(TaskflowInboxPlugin::default())
         // Admin: auto CRUD UI at /admin/ for every registered model.
         // The dashboard mounts one builtin widget from `widgets/` so a
         // fresh admin isn't empty — add your own with `.dashboard_section`.

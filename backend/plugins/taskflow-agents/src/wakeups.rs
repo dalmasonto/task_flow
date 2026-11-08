@@ -440,6 +440,14 @@ async fn pane_channel_for(agent: &TaskflowAgent) -> Result<i64, ApiError> {
 }
 
 async fn post_notice(project: i64, channel: i64, agent: i64, body: String) -> Result<(), ApiError> {
+    post_system_message(project, channel, Some(agent), body).await
+}
+
+/// A system notice (sender kind user, no user, label [`SENDER_LABEL`]) in
+/// `channel`, optionally targeted at one agent. Shared with the usage plugin
+/// (#1115) so every TaskFlow-generated notice uses one shape — and none of them
+/// can wake another rule (the chain guard keys on this label).
+pub async fn post_system_message(project: i64, channel: i64, agent: Option<i64>, body: String) -> Result<(), ApiError> {
     let is_design = TaskflowAgentChannel::objects()
         .filter(taskflow_agent_channel::ID.eq(channel))
         .first()
@@ -455,8 +463,8 @@ async fn post_notice(project: i64, channel: i64, agent: i64, body: String) -> Re
             sender_kind: TaskflowChannelMemberKind::User,
             sender_user: None,
             sender_agent: None,
-            target_agent: Some(ForeignKey::new(agent)),
-            targets: Some(json!([{ "kind": "agent", "id": agent }]).to_string()),
+            target_agent: agent.map(ForeignKey::new),
+            targets: agent.map(|a| json!([{ "kind": "agent", "id": a }]).to_string()),
             sender_label: SENDER_LABEL.to_string(),
             body_markdown: body,
             priority: TaskflowMessagePriority::Normal,
@@ -786,4 +794,17 @@ pub async fn act_as_agent(RequireAgent(agent): RequireAgent, Path((id, action)):
         return Err(err(StatusCode::FORBIDDEN, "deliver_is_for_people"));
     }
     Ok(Json(set_status(r, &action).await?).into_response())
+}
+
+/// Put a notice in front of an agent: its private "Wake-ups" DM, targeted at
+/// it (the MCP pane path, behind the prompt gate). Used by usage alerts.
+pub async fn notify_agent(agent_id: i64, body: String) -> Result<(), ApiError> {
+    let agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .first()
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "agent"))?;
+    let channel = pane_channel_for(&agent).await?;
+    post_notice(agent.project.id(), channel, agent.id, flat(&body)).await
 }

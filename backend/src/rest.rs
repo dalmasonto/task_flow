@@ -126,6 +126,12 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // #1113: wake-up rules. Written ONLY by the wake-up endpoints, which decide
     // who may aim a notice at an agent's pane. A client write could aim one.
     "taskflow_wake_rule",
+    // #1115: usage. Reports are ingested ONLY by the agent endpoint (counts
+    // only, server-priced); settings and project prices only by owners and
+    // admins through their endpoints. Every row carries `project`.
+    "taskflow_usage_report",
+    "taskflow_usage_settings",
+    "taskflow_usage_alert",
 ];
 
 /// Tables whose rows belong to a CHANNEL and must follow its visibility rather
