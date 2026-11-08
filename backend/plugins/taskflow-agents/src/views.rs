@@ -3012,7 +3012,7 @@ pub(crate) async fn load_task(task_id: i64) -> Result<TaskflowTask, StatusCode> 
 /// Title only, truncated. The description does not belong in a feed row — this
 /// table is paged by every client and its `metadata_json` already reaches 20 KB
 /// on tool rows.
-fn task_label(task: &TaskflowTask) -> String {
+pub(crate) fn task_label(task: &TaskflowTask) -> String {
     const MAX_TITLE: usize = 80;
     let title: String = if task.title.chars().count() > MAX_TITLE {
         format!("{}…", task.title.chars().take(MAX_TITLE).collect::<String>())

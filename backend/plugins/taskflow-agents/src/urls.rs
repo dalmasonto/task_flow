@@ -27,6 +27,8 @@ pub fn router() -> Router {
         // #43: mint a one-time SSE ticket (token-authed) so EventSource can
         // authenticate the realtime handshake without the bearer token in the URL.
         .route("/api/taskflow/realtime/ticket", post(views::mint_realtime_ticket))
+        // #1126: the claim lease length, for the board's lease chip.
+        .route("/api/taskflow/claim-lease", get(crate::leases::lease_info))
         // The only trusted write path for messages. Auto-REST's
         // POST /api/taskflow_agent_message/ lets the client assert its own
         // sender fields; this route derives them.

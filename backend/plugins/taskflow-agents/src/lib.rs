@@ -25,6 +25,8 @@ pub mod channel_state;
 pub mod claims;
 // #1125: post_save for a row written by a guarded column update.
 pub mod emit;
+// #1126: claim leases (release a silent agent's claims).
+pub mod leases;
 pub mod wakeups;
 pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.
@@ -110,6 +112,8 @@ impl Plugin for TaskflowAgentsPlugin {
         block_on_ready(review_requests::install_review_request_guard(&ctx.pool))?;
         // #1113: wake-up rules — event hooks and the time sweep.
         wakeups::register();
+        // #1126: release claims of agents that went silent.
+        leases::start();
 
         signals::subscribe();
 
