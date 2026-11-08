@@ -25,9 +25,9 @@ use crate::models::{
     taskflow_project_member,
 };
 
-type ApiError = (StatusCode, Json<Value>);
+pub(crate) type ApiError = (StatusCode, Json<Value>);
 
-fn err(status: StatusCode, code: &str, field: Option<&str>, detail: &str) -> ApiError {
+pub(crate) fn err(status: StatusCode, code: &str, field: Option<&str>, detail: &str) -> ApiError {
     (status, Json(json!({ "error": code, "field": field, "detail": detail })))
 }
 
@@ -67,17 +67,21 @@ fn status_str(s: TaskflowProjectStatus) -> String {
 }
 
 /// An http(s) URL of at most 400 characters, or none.
-fn check_url(field: &str, v: Option<String>) -> Result<Option<String>, ApiError> {
+pub(crate) fn check_url_max(field: &str, v: Option<String>, max: usize) -> Result<Option<String>, ApiError> {
     let v = v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     if let Some(u) = &v {
-        let ok = u.len() <= 400
+        let ok = u.len() <= max
             && (u.starts_with("https://") || u.starts_with("http://"))
             && !u.chars().any(|c| c.is_whitespace() || c.is_control());
         if !ok {
-            return Err(err(StatusCode::BAD_REQUEST, "invalid", Some(field), "An http(s) address, at most 400 characters."));
+            return Err(err(StatusCode::BAD_REQUEST, "invalid", Some(field), &format!("An http(s) address, at most {max} characters.")));
         }
     }
     Ok(v)
+}
+
+fn check_url(field: &str, v: Option<String>) -> Result<Option<String>, ApiError> {
+    check_url_max(field, v, 400)
 }
 
 fn valid_slug(s: &str) -> bool {

@@ -30,6 +30,13 @@ pub fn router() -> Router {
             "/api/taskflow/projects/{project}",
             delete(views::delete_project).patch(crate::project_edit::patch_project),
         )
+        // #1139: API environments; exactly one default.
+        .route("/api/taskflow/projects/{project}/environments", umbral::web::post(crate::environments::create))
+        .route(
+            "/api/taskflow/projects/{project}/environments/{id}",
+            umbral::web::patch(crate::environments::patch).delete(crate::environments::delete),
+        )
+        .route("/api/taskflow/projects/{project}/environments/{id}/default", umbral::web::post(crate::environments::make_default))
         // #616: the instructions every agent in the project reads via whoami.
         // Owner/admin (or superuser) only; auto-REST cannot write the column.
         .route(

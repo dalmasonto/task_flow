@@ -26,3 +26,4 @@ where
     }
     umbral::signals::emit(&format!("post_save:{}", M::TABLE), json!({ "instance": instance, "created": false })).await;
 }
+

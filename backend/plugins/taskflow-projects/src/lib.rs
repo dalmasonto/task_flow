@@ -27,6 +27,8 @@ pub mod account;
 pub mod emit;
 // #1137: the only writer of project settings.
 pub mod project_edit;
+// #1139: a project's API environments (owner/admin).
+pub mod environments;
 pub mod urls;
 pub mod views;
 
