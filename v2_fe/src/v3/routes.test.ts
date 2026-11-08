@@ -46,6 +46,7 @@ describe("v3GatePaths", () => {
     const { v3GatePaths } = await import("./routes")
     expect(v3GatePaths("/v3/agents/1")).toEqual(["/dashboard/api", "/dashboard/board"])
     expect(v3GatePaths("/v3/board")).toEqual(["/dashboard/board"])
+    expect(v3GatePaths("/v3/media")).toEqual(["/dashboard/design"])
     expect(v3GatePaths("/dashboard/x")).toEqual(["/dashboard/x"])
   })
 })

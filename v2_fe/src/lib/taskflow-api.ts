@@ -1395,6 +1395,39 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
   return readJson(response)
 }
 
+/// What `PATCH agents/{id}/scopes` answers: the new stored state of every
+/// active key of the agent (#1078).
+export type AgentScopesResult = {
+  agent_id: number
+  scopes: string[]
+  denied_scopes: string[]
+  capabilities: string[]
+  credentials_updated: number
+}
+
+/// Change an agent's capabilities without a new key. The body is the whole new
+/// state: `scopes` (grants beyond the defaults) and `denied_scopes` (defaults
+/// switched off). Owners and admins of the agent's project only; it applies on
+/// the agent's next call.
+export async function setAgentScopes(agentId: number, input: { scopes: string[]; denied_scopes: string[] }): Promise<AgentScopesResult> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}/scopes`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "Only the project's owners and admins can change an agent's capabilities."
+        : response.status === 404
+          ? "That agent isn't in a project you manage."
+          : await readErrorDetail(response, `Could not save the capabilities (${response.status}).`)
+    )
+  }
+  return readJson(response)
+}
+
 /// Remove an agent from its project. Its credentials and sessions go with it, so
 /// its key stops working at once; its messages and reviews stay, under its name.
 /// Allowed for the human who linked it and for project owners/admins.

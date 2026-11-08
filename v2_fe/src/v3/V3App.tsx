@@ -147,6 +147,10 @@ const OverviewPage = lazyNamed(
   "OverviewPage",
 );
 const UsagePage = lazyNamed(() => import("./usage/UsagePage"), "UsagePage");
+const MediaPage = lazyNamed(() => import("./files/MediaPage"), "MediaPage");
+const ToolboxPage = lazyNamed(() => import("./toolbox/ToolboxPage"), "ToolboxPage");
+const ApiKeysPage = lazyNamed(() => import("./api-keys/ApiKeysPage"), "ApiKeysPage");
+const InvitesPage = lazyNamed(() => import("./invites/InvitesPage"), "InvitesPage");
 const HomePage = lazyNamed(() => import("./home/HomePage"), "HomePage");
 const InvitationsPage = lazyNamed(
   () => import("./account/InvitationsPage"),
@@ -228,6 +232,10 @@ export function V3App() {
             <Route path="/v3/decisions" element={<DecisionsPage />} />
             <Route path="/v3/overview" element={<OverviewPage />} />
             <Route path="/v3/usage" element={<UsagePage />} />
+            <Route path="/v3/invites" element={<InvitesPage />} />
+            <Route path="/v3/media" element={<MediaPage />} />
+            <Route path="/v3/toolbox" element={<ToolboxPage />} />
+            <Route path="/v3/api-keys" element={<ApiKeysPage />} />
             <Route
               path="/v3/account"
               element={<Navigate to="/v3/account/profile" replace />}

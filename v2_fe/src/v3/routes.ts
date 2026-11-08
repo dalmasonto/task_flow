@@ -40,6 +40,9 @@ const GATE_MAP: [prefix: string, v2: string | string[]][] = [
   ["/v3/overview", ["/dashboard/api", "/dashboard/board"]],
   ["/v3/design", "/dashboard/design"],
   ["/v3/api-keys", "/dashboard/api"],
+  // Media names the room each file was shared in. The design gate loads the
+  // channel list alone (2 queries, not the 6 of the chat slice).
+  ["/v3/media", "/dashboard/design"],
   ["/v3/project", "/dashboard/api"],
   // Onboarding watches agents connect (presence lives with the API page's
   // slices); its chat/terminal slices come from setChatSurfaceMounted.
