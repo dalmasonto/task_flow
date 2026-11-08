@@ -3624,6 +3624,7 @@ dependencies = [
  "umbral-auth",
  "umbral-realtime",
  "umbral-testing",
+ "unicode-normalization",
  "uuid",
 ]
 

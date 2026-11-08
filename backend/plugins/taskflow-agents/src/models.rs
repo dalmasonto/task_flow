@@ -138,6 +138,14 @@ pub struct TaskflowAgent {
     pub linked_by: Option<ForeignKey<AuthUser>>,
     #[umbral(privileged, string, max_length = 160)]
     pub linked_user_label: Option<String>,
+    /// #1078: who makes the model behind this agent (`anthropic`, `openai`,
+    /// `google`, `other`), set by its owner/admin or linked human through
+    /// `PATCH /api/taskflow/agents/{agent}`. Null when nobody said.
+    #[umbral(privileged, string, max_length = 40)]
+    pub provider: Option<String>,
+    /// #1078: the model's name, free text (e.g. `claude-opus-5-5`).
+    #[umbral(privileged, string, max_length = 80)]
+    pub model: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
     /// #615: the agent's role instructions (markdown), read by the agent through
     /// `whoami`. `privileged`: auto-REST create/update strips it. The only
