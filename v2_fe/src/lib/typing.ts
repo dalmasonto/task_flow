@@ -2,12 +2,13 @@
 /// `project:{p}:typing` (backend/plugins/taskflow-agents/src/typing.rs); App's
 /// ONE stream forwards them here, and surfaces read who is writing where.
 ///
-/// `TYPING_LIVE` gates both the subscription and the sends: a realtime group
-/// joins the stream only once the backend that serves it is deployed. Flip it
-/// with that deploy (dev: VITE_TYPING_LIVE=1 against a server that has it).
+/// `TYPING_LIVE` (lib/batch-live's BATCH_LIVE) gates both the subscription
+/// and the sends: a realtime group joins the stream only once the backend
+/// that serves it is deployed.
 import { API_BASE_URL, withBearer } from "@/lib/auth-api"
 
-export const TYPING_LIVE = import.meta.env.VITE_TYPING_LIVE === "1"
+export { BATCH_LIVE as TYPING_LIVE } from "@/lib/batch-live"
+import { BATCH_LIVE as TYPING_LIVE } from "@/lib/batch-live"
 
 /// The group suffix, a contract with backend/src/realtime.rs (`TYPING`).
 export const typingGroup = (projectId: number | string) => `project:${projectId}:typing`

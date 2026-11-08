@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
+import { subscribeBatchEvents } from "@/lib/batch-live"
 import { fetchPins, fetchReactions, setPinned, toggleReaction, type Pin, type Reaction } from "@/lib/pins-api"
 
 export function useRoomExtras(channel: number | null, ids: number[]) {
@@ -23,7 +24,14 @@ export function useRoomExtras(channel: number | null, ids: number[]) {
       setReactTick((t) => t + 1)
     }
     document.addEventListener("visibilitychange", again)
-    return () => document.removeEventListener("visibilitychange", again)
+    // Live once the batch deploys: id-only events, so refetch this room's.
+    const offPins = subscribeBatchEvents("pins", () => setPinTick((t) => t + 1))
+    const offReacts = subscribeBatchEvents("reactions", () => setReactTick((t) => t + 1))
+    return () => {
+      document.removeEventListener("visibilitychange", again)
+      offPins()
+      offReacts()
+    }
   }, [])
 
   useEffect(() => {

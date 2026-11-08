@@ -331,6 +331,8 @@ export type RealtimeStreamOptions = {
   onStatusChange?: (status: RealtimeStatus) => void
   /// Server-sent events that aren't row changes (#5988 `typing`), by name.
   onCustom?: (action: string, data: unknown, channel: string) => void
+  /// Row changes on a group with no table here (the batch's id-only groups).
+  onOtherGroup?: (channel: string, action: TaskflowRealtimeAction, row: unknown) => void
 }
 
 /// Open one SSE connection for every group and keep it alive. Returns a closer.
@@ -436,7 +438,10 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
         return
       }
       const table = realtimeTableForChannel(channel)
-      if (!table) return
+      if (!table) {
+        options.onOtherGroup?.(channel, action, row)
+        return
+      }
       options.onEvent({ table, action, row: row as Record<string, unknown> })
     })
 

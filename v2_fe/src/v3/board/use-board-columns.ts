@@ -3,6 +3,8 @@
 /// (one request, not one per event). `reload()` re-reads after an edit.
 import { useEffect, useRef } from "react"
 
+import { subscribeBatchEvents } from "@/lib/batch-live"
+
 import { useLoad } from "../lib/use-load"
 import { useWorkspace } from "../workspace"
 import { DEFAULT_COLUMNS, fetchBoardColumns, type BoardColumns } from "./columns"
@@ -22,5 +24,7 @@ export function useBoardColumns(): BoardColumns & { reload: () => void; loading:
     const t = setTimeout(reload, 1200)
     return () => clearTimeout(t)
   }, [tasks, reload])
+  // Someone edited the columns (live once the batch deploys).
+  useEffect(() => subscribeBatchEvents("statuses", reload), [reload])
   return { ...(res.data ?? DEFAULT_COLUMNS), reload, loading: res.loading }
 }
