@@ -180,6 +180,10 @@ export function AgentChatBubble({
   onOpenQuestion,
   onOpenThread,
   threadSummary,
+  layout = "bubble",
+  continued = false,
+  renderAvatar,
+  senderBadge,
 }: {
   message: AgentMessage
   onRetry?: (nonce: string) => void
@@ -204,8 +208,18 @@ export function AgentChatBubble({
   onOpenThread?: (rootId: string) => void
   /// #1132: this root's replies, for the "N replies" link under the bubble.
   threadSummary?: { replyCount: number; lastReplyAt: string | null } | null
+  /// "bubble" (v2, the dock): chat bubbles, yours on the right. "row" (v3
+  /// chat.html, #5918): flat full-width rows with the avatar on the left, a
+  /// hover toolbar, and `continued` rows (same sender, moments later) without
+  /// a repeated avatar and name.
+  layout?: "bubble" | "row"
+  continued?: boolean
+  /// Row layout: the sender's avatar, and a short badge after the name ("agent").
+  renderAvatar?: (from: string) => ReactNode
+  senderBadge?: (from: string) => string | null
 }) {
   const fromUser = message.from === "user"
+  const row = layout === "row"
   const alignRight = fromUser
   // #107: the rendered-markdown container, so "Copy" can take the text AS
   // DISPLAYED (headings without #, list bullets, link text) rather than
@@ -237,45 +251,10 @@ export function AgentChatBubble({
     }
   }
 
-  return (
-    <article data-message-id={message.id} className={cn("flex", alignRight ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[88%] rounded-lg border p-3 shadow-sm sm:max-w-[82%]",
-          fromUser ? "agent-sent-bubble" : alignRight ? "bg-accent/75" : "bg-background/95"
-        )}
-      >
-        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-semibold">{fromUser ? "You" : message.from}</span>
-          <span className={cn("text-muted-foreground", message.status === "failed" && "text-rose-600 dark:text-rose-300")}>
-            {message.time}
-          </span>
-          {message.editedAt ? (
-            <span
-              className="text-[0.65rem] italic text-muted-foreground/80"
-              title={`Edited ${formatMessageTime(message.editedAt, "just now")}`}
-            >
-              (edited)
-            </span>
-          ) : null}
-          {message.priority && message.priority !== "normal" ? (
-            <span className={cn("rounded-full px-2 py-0.5 font-medium ring-1", messagePriorityBadgeClass(message.priority))}>
-              {messagePriorityLabel(message.priority)}
-            </span>
-          ) : null}
-          {shouldShowDesignBadge(showDesignBadge, message.isDesign) ? (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary ring-1 ring-primary/20">
-              Design
-            </span>
-          ) : null}
-          {/* Capture a spoken commitment as a task without leaving the thread —
-              the whole point is that it costs one click, not a form. Hidden for
-              a message still in flight: there is nothing durable to capture yet. */}
-          {/* `!message.status` was always false: a SAVED message carries
-              status "posted", only in-flight ones are "sending"/"failed". Test
-              the states that actually mean "not durable yet". */}
+  const actionsEl = (
+    <>
           {message.body.trim() && message.status !== "sending" && message.status !== "failed" ? (
-            <span className="ml-auto flex items-center gap-0.5">
+            <span className={row ? "absolute -top-3 right-3 z-10 hidden items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 shadow-sm group-focus-within:flex group-hover:flex" : "ml-auto flex items-center gap-0.5"}>
               {/* #107: copy AS RENDERED (what selecting the bubble would give)
                   vs copy the raw markdown source — both one click. */}
               <BubbleAction
@@ -327,6 +306,65 @@ export function AgentChatBubble({
               ) : null}
             </span>
           ) : null}
+    </>
+  )
+
+  const badge = row && !fromUser ? (senderBadge?.(message.from) ?? null) : null
+  return (
+    <article
+      data-message-id={message.id}
+      className={cn(
+        row ? "group relative -mx-4 flex gap-3 px-4 hover:bg-muted/40" : "flex",
+        row ? (continued ? "py-0.5" : "pt-2 pb-0.5") : alignRight ? "justify-end" : "justify-start",
+      )}
+    >
+      {row ? (
+        <div className="w-9 shrink-0">
+          {continued ? (
+            <span className="block pt-1 text-right text-[0.65rem] text-muted-foreground opacity-0 tabular-nums group-hover:opacity-100">{message.time}</span>
+          ) : (
+            renderAvatar?.(message.from)
+          )}
+        </div>
+      ) : null}
+      {row ? actionsEl : null}
+      <div
+        className={cn(
+          row ? "min-w-0 flex-1" : "max-w-[88%] rounded-lg border p-3 shadow-sm sm:max-w-[82%]",
+          row ? null : fromUser ? "agent-sent-bubble" : alignRight ? "bg-accent/75" : "bg-background/95"
+        )}
+      >
+        <div className={cn("flex flex-wrap items-center gap-2 text-xs", row ? "mb-0.5" : "mb-2", row && continued && "hidden")}>
+          <span className={cn("font-semibold", row && "text-sm")}>{fromUser ? "You" : message.from}</span>
+          {badge ? <span className="rounded-md bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">{badge}</span> : null}
+          <span className={cn("text-muted-foreground", message.status === "failed" && "text-rose-600 dark:text-rose-300")}>
+            {message.time}
+          </span>
+          {message.editedAt ? (
+            <span
+              className="text-[0.65rem] italic text-muted-foreground/80"
+              title={`Edited ${formatMessageTime(message.editedAt, "just now")}`}
+            >
+              (edited)
+            </span>
+          ) : null}
+          {message.priority && message.priority !== "normal" ? (
+            <span className={cn("rounded-full px-2 py-0.5 font-medium ring-1", messagePriorityBadgeClass(message.priority))}>
+              {messagePriorityLabel(message.priority)}
+            </span>
+          ) : null}
+          {shouldShowDesignBadge(showDesignBadge, message.isDesign) ? (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary ring-1 ring-primary/20">
+              Design
+            </span>
+          ) : null}
+          {/* Capture a spoken commitment as a task without leaving the thread —
+              the whole point is that it costs one click, not a form. Hidden for
+              a message still in flight: there is nothing durable to capture yet. */}
+          {/* `!message.status` was always false: a SAVED message carries
+              status "posted", only in-flight ones are "sending"/"failed". Test
+              the states that actually mean "not durable yet". */}
+          {row ? null : actionsEl}
         </div>
         {editing ? (
           <div className="space-y-2">

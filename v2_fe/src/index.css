@@ -292,6 +292,12 @@
     background-color: color-mix(in oklch, var(--muted) 56%, var(--background));
   }
 
+  /* v3 chat.html (#5918): a plain page, no doodle pattern or tinted wash. */
+  html.v3 .chat-thread-bg {
+    background-color: var(--background);
+    background-image: none;
+  }
+
   .dark .agent-sent-bubble {
     background-color: oklch(0.31 0.04 205);
     border-color: oklch(0.42 0.055 205);

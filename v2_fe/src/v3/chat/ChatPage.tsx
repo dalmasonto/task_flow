@@ -7,15 +7,18 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeftIcon, HashIcon, MessagesSquareIcon, PaletteIcon, PencilIcon, SearchIcon, UsersIcon } from "lucide-react"
 
+import { toast } from "sonner"
+
 import { AgentsConversationView } from "@/components/chat/conversation-view"
 import { NewConversationPanel, type ConversationCandidate } from "@/components/chat/new-conversation"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { useIsBelowLg } from "@/hooks/use-mobile"
-import { chatIdToSlug, findPublicRoomChat, liveId, slugToChatId, upsertById } from "@/lib/live-mappers"
+import { chatIdToSlug, findPublicRoomChat, isAgentOnline, liveId, mapLiveTerminalSessions, slugToChatId, upsertById } from "@/lib/live-mappers"
 import { createTaskflowChannel } from "@/lib/taskflow-api"
 import { subscribeThreadEvents } from "@/lib/thread-bus"
 import { fetchThreadSummaries } from "@/lib/threads-api"
@@ -35,6 +38,13 @@ import { focusComposerIn } from "./focus"
 import { ThreadPanel } from "./ThreadPanel"
 import { channelIdOf } from "./thread-logic"
 import { useDetail } from "../lib/use-detail"
+import { useIsWide } from "../lib/use-wide"
+import { myMembership } from "../invites/invites-logic"
+import { RoomHeader } from "./RoomHeader"
+import { RoomPanel } from "./RoomPanel"
+import { linkedTaskIds, roomMembers, roomPowers } from "./room-logic"
+
+const PANEL_KEY = "v3.chat.details"
 
 const FILTERS: { id: ChatFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -263,13 +273,99 @@ function ChatWorkspace({ project }: { project: Project }) {
   )
   const threadOpen = !!(threadParam && channelId)
 
+  // #5918: the room header, details panel and flat message rows of chat.html.
+  const now = useLivenessNow()
+  const isWide = useIsWide()
+  const { projectTasks } = useWorkspace()
+  const [panelPref, setPanelPref] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(PANEL_KEY) !== "0"
+    } catch {
+      return true
+    }
+  })
+  const [panelSheet, setPanelSheet] = useState(false)
+  const togglePanel = () => {
+    if (!isWide) return setPanelSheet((o) => !o)
+    setPanelPref((o) => {
+      try {
+        localStorage.setItem(PANEL_KEY, o ? "0" : "1")
+      } catch {
+        // Private window: remembered for this visit only.
+      }
+      return !o
+    })
+  }
+  const channel = channelId != null ? (live?.agentChannels.find((c) => c.id === channelId) ?? null) : null
+  const members = useMemo(
+    () => (channel && live ? roomMembers(channel, live.agentChannelMembers, live.members, live.agents, live.tasks, (id) => isAgentOnline(id, live.agents, live.agentSessions, now)) : null),
+    [channel, live, now],
+  )
+  const me = myMembership(live?.members ?? [], currentUser?.id)
+  const powers = channel ? roomPowers(channel, { user: currentUser?.id ?? null, role: me?.role ?? null, inRoom: !!members?.people.some((p) => p.user === currentUser?.id), superuser: !!currentUser?.is_superuser }) : null
+  const messages = useMemo(() => selectedChat?.messages ?? [], [selectedChat?.messages])
+  const linkedTasks = useMemo(() => {
+    const byId = new Map(projectTasks.map((t) => [Number(t.id), t]))
+    return linkedTaskIds(channel?.task ?? null, messages.map((m) => m.body), new Set(byId.keys())).map((id) => {
+      const t = byId.get(id)!
+      return { id, title: t.title, status: t.status }
+    })
+  }, [channel?.task, messages, projectTasks])
+  const terminals = useMemo(() => {
+    const seen = new Set<number>()
+    return (live ? mapLiveTerminalSessions(live, now) : []).filter((t) => (seen.has(t.agentId) ? false : (seen.add(t.agentId), true)))
+  }, [live, now])
+  const agentNames = useMemo(() => new Map((live?.agents ?? []).map((a) => [a.display_name, a])), [live?.agents])
+  const roleByName = useMemo(() => new Map((live?.members ?? []).filter((m) => m.status === "active").map((m) => [m.display_name, m.role])), [live?.members])
+  const renderAvatar = (from: string) => {
+    if (from === "user") return <ActorAvatar name={currentUser?.username || "You"} size="md" />
+    const a = agentNames.get(from)
+    return <ActorAvatar name={from} model={a ? (guessModel(a.runtime) ?? guessModel(a.display_name)) : null} size="md" />
+  }
+  const senderBadge = (from: string) => {
+    if (agentNames.has(from)) return "agent"
+    const role = roleByName.get(from)
+    return role === "owner" ? "Owner" : role === "admin" ? "Admin" : null
+  }
+  const jumpTo = (id: number) => {
+    const el = pane.current?.querySelector<HTMLElement>(`[data-message-id="${id}"]`)
+    if (!el) {
+      toast.info("That message is further back", { description: "Scroll up to load older messages, then try again." })
+      return false
+    }
+    el.scrollIntoView({ block: "center", behavior: "smooth" })
+    el.classList.add("bg-accent")
+    setTimeout(() => el.classList.remove("bg-accent"), 1600)
+    return true
+  }
+  const panelOpen = !!channel && (isWide ? panelPref && !threadOpen : panelSheet)
+  const panel =
+    channel && members && powers ? (
+      <RoomPanel
+        channel={channel}
+        members={members}
+        powers={powers}
+        meUser={currentUser?.id ?? null}
+        linkedTasks={linkedTasks}
+        terminals={terminals}
+        messages={messages}
+        addCandidates={outletContext.addMemberCandidates}
+        onAddMember={outletContext.onAddMember}
+        onJumpToMessage={(id) => {
+          setPanelSheet(false)
+          return jumpTo(id)
+        }}
+        onClose={isWide ? undefined : () => setPanelSheet(false)}
+      />
+    ) : null
+
   const showList = !isBelowLg || !slug
   const showConvo = (!isBelowLg || !!slug) && !(isBelowLg && threadOpen)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {messageError ? <p className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">{messageError}</p> : null}
-      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] overflow-hidden", threadOpen ? "lg:grid-cols-[19rem_minmax(0,1fr)_24rem]" : "lg:grid-cols-[19rem_minmax(0,1fr)]")}>
+      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] overflow-hidden", threadOpen ? "lg:grid-cols-[19rem_minmax(0,1fr)_24rem]" : isWide && panelOpen ? "lg:grid-cols-[19rem_minmax(0,1fr)_20rem]" : "lg:grid-cols-[19rem_minmax(0,1fr)]")}>
         {showList ? (
           <aside className="min-h-0 border-border lg:border-r" aria-label="Conversations">
             <ChatList
@@ -295,7 +391,26 @@ function ChatWorkspace({ project }: { project: Project }) {
             ) : null}
             {selectedChat ? (
               <div className="flex min-h-0 flex-1 flex-col">
-                <AgentsConversationView {...outletContext} onOpenThread={channelId ? openThread : undefined} threadSummaries={threadSummaries} mayDrive={(id) => mayDrive(id) !== false} />
+                <RoomHeader
+                  title={selectedChat.title}
+                  topic={channel?.topic ?? null}
+                  isRoom={selectedChat.mode === "channel"}
+                  members={members}
+                  channelId={channelId}
+                  panelOpen={panelOpen}
+                  onTogglePanel={togglePanel}
+                  onJump={jumpTo}
+                />
+                <AgentsConversationView
+                  {...outletContext}
+                  bare
+                  messageLayout="row"
+                  renderAvatar={renderAvatar}
+                  senderBadge={senderBadge}
+                  onOpenThread={channelId ? openThread : undefined}
+                  threadSummaries={threadSummaries}
+                  mayDrive={(id) => mayDrive(id) !== false}
+                />
               </div>
             ) : (
               <Empty className="m-auto max-w-sm">
@@ -312,12 +427,25 @@ function ChatWorkspace({ project }: { project: Project }) {
             )}
           </section>
         ) : null}
+        {isWide && panelOpen && panel ? (
+          <aside className="h-full min-h-0 overflow-hidden border-l border-border" aria-label="Room details">
+            {panel}
+          </aside>
+        ) : null}
         {threadOpen ? (
           <div className="h-full min-h-0 overflow-hidden">
             <ThreadPanel key={`${channelId}:${threadParam}`} channel={channelId!} root={threadParam!} currentUser={currentUser} onClose={closeThread} />
           </div>
         ) : null}
       </div>
+      {!isWide ? (
+        <Sheet open={panelSheet && !!panel} onOpenChange={setPanelSheet}>
+          <SheetContent side="right" showCloseButton={false} className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-sm">
+            <SheetTitle className="sr-only">Room details</SheetTitle>
+            {panel}
+          </SheetContent>
+        </Sheet>
+      ) : null}
     </div>
   )
 }

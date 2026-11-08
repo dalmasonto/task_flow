@@ -20,7 +20,7 @@ import { fileReferenceText, spliceAtCaret } from "@/lib/composer"
 import { markChannelRead } from "@/lib/taskflow-api"
 import { cancelBody, parseQuestionSet, questionState, type QuestionSet } from "@/lib/structured-questions"
 import { isAtBottom, tailChange } from "@/lib/thread-follow"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type UIEvent } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, type UIEvent } from "react"
 import { useNavigate } from "react-router-dom"
 
 
@@ -33,6 +33,17 @@ import { useNavigate } from "react-router-dom"
 /// features in a ~380px panel. Splitting it into a second, simpler chat is what
 /// would let the two drift.
 const alwaysDrive = () => true
+
+/// Row layout: does `message` carry on from the row above it (same sender,
+/// within five minutes, no date line between, not a reply)? Then it drops
+/// the repeated avatar and name.
+function continuesFrom(prev: { type: string; message?: AgentMessage } | undefined, message: AgentMessage): boolean {
+  if (!prev || prev.type !== "message" || !prev.message) return false
+  const p = prev.message
+  if (p.from !== message.from || message.replyTo || p.questions) return false
+  if (!p.createdAt || !message.createdAt) return false
+  return Date.parse(message.createdAt) - Date.parse(p.createdAt) < 5 * 60_000
+}
 
 export function AgentsConversationView({
   selectedChat,
@@ -61,6 +72,10 @@ export function AgentsConversationView({
   onOpenThread,
   threadSummaries,
   mayDrive = alwaysDrive,
+  messageLayout = "bubble",
+  renderAvatar,
+  senderBadge,
+  bare = false,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   /// #506: the design pages `@page:` can mention. Absent (every surface but the
@@ -88,6 +103,13 @@ export function AgentsConversationView({
   /// #1127: may the viewer answer this agent's prompts and type into its
   /// terminal? v3 passes the server's rule; omitted, every control shows.
   mayDrive?: (agentId: number) => boolean
+  /// v3 chat (#5918): flat rows instead of bubbles; see AgentChatBubble.
+  messageLayout?: "bubble" | "row"
+  renderAvatar?: (from: string) => ReactNode
+  senderBadge?: (from: string) => string | null
+  /// v3 draws its own room header and details panel, so this view drops its
+  /// title bar and the Messages/Files switch (Files lives in v3's panel).
+  bare?: boolean
 }) {
   const compact = variant === "compact"
   const isDesign = variant === "design"
@@ -648,7 +670,7 @@ export function AgentsConversationView({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* #55: the dock draws its own header (title, switcher, minimise,
             close), so this one would be a second title bar in a 380px panel. */}
-        <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", (compact || isDesign) && "hidden")}>
+        <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", (compact || isDesign || bare) && "hidden")}>
           <div className="flex min-w-0 items-center gap-2">
             {/* Mobile-only back control: returns to the full-screen list. On
                 lg+ the list is always visible beside the thread, so it's hidden. */}
@@ -719,7 +741,7 @@ export function AgentsConversationView({
             icon, because the compact dock and the design rail both draw their
             own headers and an icon there would be a second meaning for the
             same corner. */}
-        {liveChannelId != null ? (
+        {liveChannelId != null && !bare ? (
           <div className="flex shrink-0 items-center px-3 pt-2">
             <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5" role="tablist" aria-label="Conversation view">
               {(
@@ -778,7 +800,7 @@ export function AgentsConversationView({
               <p className="text-xs text-muted-foreground/70">Be the first to say something.</p>
             </div>
           )}
-          {buildThreadItems(windowedMessages).map((item) =>
+          {buildThreadItems(windowedMessages).map((item, index, items) =>
             item.type === "date" ? (
               <div
                 key={item.key}
@@ -804,6 +826,10 @@ export function AgentsConversationView({
                 onOpenThread={onOpenThread}
                 threadSummary={threadSummaries?.[item.message.id] ?? null}
                 showDesignBadge={showDesignBadge}
+                layout={messageLayout}
+                continued={messageLayout === "row" && continuesFrom(items[index - 1], item.message)}
+                renderAvatar={renderAvatar}
+                senderBadge={senderBadge}
                 // #644: the card inside the bubble reads the question's state
                 // from the thread, and its Answer button targets THIS message.
                 questionState={

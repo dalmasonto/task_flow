@@ -1795,6 +1795,59 @@ export async function addChannelMember(
   return readJson(response)
 }
 
+/// Room admin (#5918, reviewer #5924): rename a room or change its topic,
+/// remove a member (or leave), archive or unarchive. The server decides who
+/// may (the room's creator, or a project owner/admin; anyone may leave), so
+/// these only turn its refusals into sentences.
+async function channelAdminError(response: Response, fallback: string): Promise<Error> {
+  let code: string | undefined
+  let detail: string | undefined
+  try {
+    const body = (await response.clone().json()) as { error?: string; code?: string; detail?: string }
+    code = body.error ?? body.code
+    detail = body.detail
+  } catch {
+    // Not JSON: fall through to the status.
+  }
+  if (code === "title_taken") return new Error("Another room in this project already has that name.")
+  if (code === "last_human") return new Error("A group needs at least one person in it, so the last one can't leave.")
+  if (code === "archived") return new Error("This room is archived. Unarchive it first.")
+  if (response.status === 403) return new Error("Only the room's creator or a project owner or admin can change this.")
+  if (response.status === 404) return new Error("That room no longer exists.")
+  if (response.status === 400) return new Error(detail ?? (await readFieldErrorMessage(response, fallback)))
+  return new Error(`${fallback} (${response.status}).`)
+}
+
+export async function updateChannel(channelId: number, patch: { title?: string; topic?: string | null }): Promise<TaskflowAgentChannel> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/channels/${channelId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(patch),
+  })
+  if (!response.ok) throw await channelAdminError(response, "Couldn't save the room")
+  return readJson(response)
+}
+
+export async function removeChannelMember(channelId: number, memberId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/channels/${channelId}/members/${memberId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) throw await channelAdminError(response, "Couldn't remove them")
+}
+
+export async function setChannelArchived(channelId: number, archived: boolean): Promise<TaskflowAgentChannel> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/channels/${channelId}/${archived ? "archive" : "unarchive"}`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) throw await channelAdminError(response, archived ? "Couldn't archive the room" : "Couldn't unarchive the room")
+  return readJson(response)
+}
+
 /// What a client may say when creating an invite. `project` comes from the URL,
 /// and `status` / `invite_token` / `invited_by` / `expires_at` are all set
 /// server-side — the client cannot assert them. (The `taskflow_project_invite`
