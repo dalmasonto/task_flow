@@ -26,6 +26,11 @@ pub fn router() -> Router {
         // #706: every project's task/review totals in one request, for the
         // sidebar badges. Replaces a 2xN fan-out of count queries.
         .route("/api/taskflow/projects/counts", get(views::project_counts))
+        // #5907 1b: the board's columns (GET members, PUT owner/admin).
+        .route(
+            "/api/taskflow/projects/{project}/statuses",
+            get(crate::statuses::list).put(crate::statuses::replace),
+        )
         // #60: the dashboard's one-call aggregation over a project's
         // sessions, tasks, and activity.
         .route(

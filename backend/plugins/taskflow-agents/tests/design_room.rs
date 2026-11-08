@@ -449,6 +449,7 @@ async fn a_review_on_a_roomless_project_still_reports_back() {
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create task")

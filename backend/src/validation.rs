@@ -120,6 +120,7 @@ pub fn install() {
         register_model::<tasks::TaskflowTaskActivity>();
         register_model::<tasks::TaskflowTaskSession>();
         register_model::<tasks::TaskflowTaskAttachment>();
+        register_model::<tasks::TaskflowProjectStatus>();
     });
 }
 

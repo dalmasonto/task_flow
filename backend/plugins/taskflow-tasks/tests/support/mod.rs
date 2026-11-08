@@ -155,6 +155,7 @@ pub async fn seed_task(project: i64) -> i64 {
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create task")
@@ -202,6 +203,7 @@ pub async fn seed_task_with_operator(
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create operated task")
@@ -266,6 +268,7 @@ pub async fn seed_closed_task(project: i64, closed_at: chrono::DateTime<chrono::
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create closed task")
@@ -345,6 +348,11 @@ pub async fn seed_activity(
 /// `can_access_project` checks. Without this, `GET .../stats` 404s the
 /// caller exactly like a real non-member.
 pub async fn seed_active_member(project: i64, user: i64) {
+    seed_member_as(project, user, TaskflowProjectRole::Developer).await;
+}
+
+/// An active member with `role` (#5907 1b: owner/admin-only writes).
+pub async fn seed_member_as(project: i64, user: i64, role: TaskflowProjectRole) {
     TaskflowProjectMember::objects()
         .create(TaskflowProjectMember {
             id: 0,
@@ -353,7 +361,7 @@ pub async fn seed_active_member(project: i64, user: i64) {
             user: Some(ForeignKey::new(user)),
             display_name: format!("Member {user}"),
             email: None,
-            role: TaskflowProjectRole::Developer,
+            role,
             status: TaskflowMembershipStatus::Active,
             invited_by: None,
             created_at: None,
@@ -456,6 +464,13 @@ impl TestApp {
         TestResponse {
             inner: self.client.get(path).await,
         }
+    }
+
+    /// PUT JSON to `path` authenticated as `user_id` (#5907 1b).
+    pub async fn put_as(&self, user_id: i64, path: &str, body: serde_json::Value) -> TestResponse {
+        let token = self.tokens.lock().expect("tokens poisoned").get(&user_id).cloned().expect("no bearer token seeded");
+        self.client.set_default_header(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {token}")).expect("bearer header"));
+        TestResponse { inner: self.client.put_json(path, &body).await }
     }
 
     /// POST JSON to `path` authenticated as `user_id` (#1138).

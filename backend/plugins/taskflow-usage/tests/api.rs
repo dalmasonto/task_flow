@@ -43,6 +43,7 @@ async fn task_for(project: i64, agent: i64, status: TaskflowTaskStatus) -> i64 {
             operator_user: None, operator_agent_id: None, created_by_agent_id: None, assignee_label: None,
             due_at: None, closed_at: None, github_issue_number: None, github_issue_url: None, github_repo: None,
             created_at: None, updated_at: None,
+            status_column: None,
         })
         .await
         .unwrap()

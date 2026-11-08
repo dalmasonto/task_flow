@@ -3320,6 +3320,7 @@ pub async fn create_task_as_agent(
             created_at: None,
             github_repo: input.repo.as_deref().map(str::trim).filter(|repo| !repo.is_empty()).map(str::to_string),
             updated_at: None,
+            status_column: None,
         })
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

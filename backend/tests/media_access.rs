@@ -367,6 +367,7 @@ async fn seed_task_attachment(project: i64) -> String {
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create task");

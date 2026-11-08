@@ -371,6 +371,7 @@ pub async fn seed_task(project: i64, title: &str) -> i64 {
             github_repo: None,
             created_at: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("seed task")
