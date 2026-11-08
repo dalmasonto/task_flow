@@ -1,7 +1,13 @@
 const AUTH_TOKEN_KEY = "taskflow.auth.token"
 const AUTH_USER_KEY = "taskflow.auth.user"
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ""
+import { readServerOverride } from "@/lib/server-choice"
+
+/// The server every request goes to: the person's choice from the server picker
+/// (lib/server-choice.ts) if they made one, else the build's default. Read once
+/// at startup; switching servers reloads the page.
+export const BUILD_API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? ""
+export const API_BASE_URL: string = readServerOverride() ?? BUILD_API_BASE_URL
 
 export type AuthUser = {
   id: number
