@@ -37,9 +37,14 @@ describe("parseSiteConfig", () => {
 /// here instead of quietly reading `null` forever — which is indistinguishable
 /// from the bug this module fixes.
 describe("site config schema", () => {
-  it("declares the config table at version 1", () => {
-    expect(db.verno).toBe(1)
-    expect(db.tables.map((table) => table.name)).toContain("config")
+  it("is at version 2, with config, servers and sessions declared", () => {
+    expect(db.verno).toBe(2)
+    expect(db.tables.map((table) => table.name).sort()).toEqual(["config", "servers", "sessions"])
+  })
+
+  it("keys saved servers by address and kept sessions by server", () => {
+    expect(db.table("servers").schema.primKey.keyPath).toBe("url")
+    expect(db.table("sessions").schema.primKey.keyPath).toBe("server")
   })
 
   it("keys the config table by userId", () => {
