@@ -57,7 +57,7 @@ use umbral_oauth::providers::GitHubProvider;
 use umbral_openapi::OpenApiPlugin;
 use umbral_playground::PlaygroundPlugin;
 use umbral_rest::{
-    ChainAuthentication, IsAuthenticated, PageNumberPagination, ResourceConfig, RestPlugin,
+    ChainAuthentication, IsAuthenticated, PageNumberPagination, RestPlugin,
     UserRateThrottle,
 };
 use umbral_security::{SecurityConfig, SecurityPlugin};
@@ -235,8 +235,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // fresh admin isn't empty — add your own with `.dashboard_section`.
         .plugin(AdminPlugin::default().dashboard_section(widgets::cards::overview_section()))
         // REST: JSON CRUD + filtering at /api/<table>/.
-        // The Post resource has query-string filtering enabled so
-        // GET /api/post/?published=true works out of the box.
         .plugin({
             let auth = ChainAuthentication::new(vec![
                 Arc::new(SessionAuthentication::default()),
@@ -246,8 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Every project-scoped resource is restricted to the caller's
             // active-membership rows in `backend::rest` — a bare
             // `ResourceConfig::new` here would let any logged-in user list
-            // EVERY project's data by id. `Post` (the demo model) and other
-            // non-project resources stay unscoped on purpose.
+            // EVERY project's data by id.
             let mut rest = RestPlugin::default()
                 .authenticate(auth)
                 .default_permission(IsAuthenticated)
@@ -268,7 +265,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .paginate(PageNumberPagination::new(25));
             // Deny by default: only the resources `backend::rest` configures are
             // served (see `with_exposed_resources` for what this closed).
-            rest = backend::rest::with_exposed_resources(rest, vec![ResourceConfig::new(Post::table_name())]);
+            // #1140: the demo `Post` model is no longer served (it was
+            // unscoped full CRUD for any logged-in user).
+            rest = backend::rest::with_exposed_resources(rest);
             rest
         })
         .plugin(PlaygroundPlugin::new("taskflow"))

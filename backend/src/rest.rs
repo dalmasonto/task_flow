@@ -341,17 +341,24 @@ pub fn user_settings_resource() -> ResourceConfig {
 /// any user: account takeover), `oauth_social_account`, realtime tickets, every
 /// project's design files, the toolbox and #885's schema tables. A new plugin's
 /// tables now stay behind their own gated endpoints unless added here on
-/// purpose. `extra` carries resources the caller adds (the binary's demo `Post`).
-pub fn with_exposed_resources(mut rest: RestPlugin, extra: Vec<ResourceConfig>) -> RestPlugin {
-    let mut all = extra;
-    all.push(project_resource());
-    all.push(user_settings_resource());
-    all.extend(project_scoped_resources());
+/// purpose.
+pub fn with_exposed_resources(mut rest: RestPlugin) -> RestPlugin {
+    // #1140: no `extra` resources any more. The binary used to pass the
+    // template's demo `Post` here, unscoped and full CRUD, so any logged-in
+    // user could write any row. Everything served is in this one list.
+    let all = exposed_resources();
     rest = rest.include_only(all.iter().map(|r| r.table().to_string()).collect::<Vec<_>>());
     for resource in all {
         rest = rest.resource(resource);
     }
     rest
+}
+
+/// Every resource auto-REST serves, and nothing else.
+pub fn exposed_resources() -> Vec<ResourceConfig> {
+    let mut all = vec![project_resource(), user_settings_resource()];
+    all.extend(project_scoped_resources());
+    all
 }
 
 pub fn project_scoped_resources() -> Vec<ResourceConfig> {

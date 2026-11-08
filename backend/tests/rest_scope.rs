@@ -98,7 +98,6 @@ async fn app() -> &'static (Router, Seed) {
         // `backend::rest`.
         let rest = backend::rest::with_exposed_resources(
             RestPlugin::default().authenticate(auth).default_permission(IsAuthenticated),
-            vec![],
         );
 
         let app = umbral::App::builder()
@@ -1578,4 +1577,15 @@ async fn activity_and_terminal_frames_are_not_rest_writable() {
     )
     .await;
     assert_eq!(status, 405, "terminal frame create must be refused, got {status}: {body}");
+}
+
+/// #1140: the template's demo `Post` model is not served, and no caller can
+/// add an unscoped resource: the exposed list is fixed in `backend::rest`.
+#[tokio::test]
+async fn the_demo_post_model_is_not_served() {
+    let tables: Vec<String> = backend::rest::exposed_resources().iter().map(|r| r.table().to_string()).collect();
+    assert!(!tables.iter().any(|t| t == "post"), "post is exposed: {tables:?}");
+    let (_, seed) = app().await;
+    let (status, body) = post_as(seed.alice, "/api/post/", serde_json::json!({ "title": "x", "body": "y", "published": true, "author": seed.alice })).await;
+    assert!(status == 404 || status == 405, "POST /api/post/ must not be served, got {status}: {body}");
 }
