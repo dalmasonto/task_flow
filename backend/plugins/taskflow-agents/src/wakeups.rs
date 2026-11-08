@@ -383,6 +383,18 @@ fn summary(r: &TaskflowWakeRule) -> String {
     }
 }
 
+/// One line, always: a note (or label) with a line break could otherwise forge
+/// a second `[taskflow wake-up …]` line, or a fake entry in the batched list.
+fn flat(text: &str) -> String {
+    text.split(['\n', '\r']).map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
+/// Who set it, in the notice itself (lead review #MSG5703): the note is free
+/// text by whoever made the rule, and must not read as a TaskFlow instruction.
+fn header(r: &TaskflowWakeRule) -> String {
+    format!("[taskflow wake-up #{}, set by {}]", r.id, flat(&r.created_by_label))
+}
+
 /// The agent's private "Wake-ups" DM: reuse one an earlier rule made, else
 /// create it, rostered to the agent and the human who linked it.
 async fn pane_channel_for(agent: &TaskflowAgent) -> Result<i64, ApiError> {
@@ -468,7 +480,7 @@ async fn deliver(mut rule: TaskflowWakeRule) -> Result<TaskflowWakeRule, ApiErro
         .await
         .map_err(internal)?
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "agent"))?;
-    let body = format!("[taskflow wake-up #{}] {}: {}", rule.id, summary(&rule), rule.note);
+    let body = format!("{} {}: {}", header(&rule), summary(&rule), flat(&rule.note));
     let project = rule.project.id();
     if matches!(rule.deliver, TaskflowWakeDeliver::Pane | TaskflowWakeDeliver::Both) {
         let channel = pane_channel_for(&agent).await?;
@@ -539,7 +551,7 @@ pub async fn deliver_missed(agent_id: i64) -> Result<usize, ApiError> {
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "agent"))?;
     let mut body = format!("[taskflow wake-up] {} wake-up(s) fired while you were offline:", missed.len());
     for r in &missed {
-        body.push_str(&format!("\n- #{} {}: {}", r.id, summary(r), r.note.replace(['\n', '\r'], " ")));
+        body.push_str(&format!("\n- #{}, set by {}: {}: {}", r.id, flat(&r.created_by_label), summary(r), flat(&r.note)));
     }
     let channel = pane_channel_for(&agent).await?;
     post_notice(agent.project.id(), channel, agent.id, body).await?;
