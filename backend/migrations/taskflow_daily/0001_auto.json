@@ -1,0 +1,709 @@
+{
+  "id": "0001_auto",
+  "plugin": "taskflow_daily",
+  "depends_on": [],
+  "operations": [
+    {
+      "kind": "CreateTable",
+      "table": "taskflow_daily_update",
+      "columns": [
+        {
+          "name": "id",
+          "ty": "BigInt",
+          "primary_key": true,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "date",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 10
+        },
+        {
+          "name": "status",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "choices": [
+            "draft",
+            "posted",
+            "skipped"
+          ],
+          "choice_labels": [
+            "Draft",
+            "Posted",
+            "Skipped"
+          ],
+          "default": "draft"
+        },
+        {
+          "name": "body_markdown",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 12000,
+          "widget": "textarea"
+        },
+        {
+          "name": "version",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "default": "1"
+        },
+        {
+          "name": "window_start",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "window_end",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "src_activity",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "src_task_changes",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "src_reviews",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "src_pull_requests",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "drafted_by_label",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 160
+        },
+        {
+          "name": "server_drafted",
+          "ty": "Boolean",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "default": "true"
+        },
+        {
+          "name": "edit_count",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "default": "0"
+        },
+        {
+          "name": "posted_message",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "posted_by",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": true,
+          "fk_target": "auth_user",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "SetNull"
+        },
+        {
+          "name": "posted_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "created_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0,
+          "auto_now_add": true
+        },
+        {
+          "name": "updated_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0
+        }
+      ],
+      "unique_together": [
+        [
+          "project",
+          "date"
+        ]
+      ],
+      "indexes": [
+        [
+          "project",
+          "id"
+        ]
+      ]
+    },
+    {
+      "kind": "CreateTable",
+      "table": "taskflow_daily_update_settings",
+      "columns": [
+        {
+          "name": "id",
+          "ty": "BigInt",
+          "primary_key": true,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "enabled",
+          "ty": "Boolean",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "default": "false"
+        },
+        {
+          "name": "local_time",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 5
+        },
+        {
+          "name": "timezone",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 64
+        },
+        {
+          "name": "drafting_agent",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": true,
+          "fk_target": "taskflow_agent",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "SetNull"
+        },
+        {
+          "name": "post_channel",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": true,
+          "fk_target": "taskflow_agent_channel",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "SetNull"
+        },
+        {
+          "name": "updated_by_label",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 160
+        },
+        {
+          "name": "updated_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0
+        }
+      ],
+      "unique_together": [
+        [
+          "project"
+        ]
+      ]
+    }
+  ],
+  "snapshot_after": {
+    "models": [
+      {
+        "name": "TaskflowDailyUpdate",
+        "table": "taskflow_daily_update",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "date",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 10
+          },
+          {
+            "name": "status",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "draft",
+              "posted",
+              "skipped"
+            ],
+            "choice_labels": [
+              "Draft",
+              "Posted",
+              "Skipped"
+            ],
+            "default": "draft"
+          },
+          {
+            "name": "body_markdown",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 12000,
+            "widget": "textarea"
+          },
+          {
+            "name": "version",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "1"
+          },
+          {
+            "name": "window_start",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "window_end",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "src_activity",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "src_task_changes",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "src_reviews",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "src_pull_requests",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "drafted_by_label",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160
+          },
+          {
+            "name": "server_drafted",
+            "ty": "Boolean",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "true"
+          },
+          {
+            "name": "edit_count",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "0"
+          },
+          {
+            "name": "posted_message",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "posted_by",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "posted_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          },
+          {
+            "name": "updated_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0
+          }
+        ],
+        "display": "TaskflowDailyUpdate",
+        "icon": "database",
+        "unique_together": [
+          [
+            "project",
+            "date"
+          ]
+        ],
+        "indexes": [
+          [
+            "project",
+            "id"
+          ]
+        ],
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowDailyUpdateSettings",
+        "table": "taskflow_daily_update_settings",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "enabled",
+            "ty": "Boolean",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "false"
+          },
+          {
+            "name": "local_time",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 5
+          },
+          {
+            "name": "timezone",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 64
+          },
+          {
+            "name": "drafting_agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "post_channel",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent_channel",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "updated_by_label",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160
+          },
+          {
+            "name": "updated_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0
+          }
+        ],
+        "display": "TaskflowDailyUpdateSettings",
+        "icon": "database",
+        "unique_together": [
+          [
+            "project"
+          ]
+        ],
+        "app_label": "app"
+      }
+    ]
+  }
+}

@@ -101,6 +101,8 @@ impl TestApp {
                 .plugin(taskflow_tasks::TaskflowTasksPlugin)
                 .plugin(taskflow_agents::TaskflowAgentsPlugin)
                 .plugin(taskflow_decisions::TaskflowDecisionsPlugin)
+                .plugin(taskflow_usage::TaskflowUsagePlugin)
+                .plugin(taskflow_daily::TaskflowDailyPlugin)
                 .plugin(taskflow_inbox::TaskflowInboxPlugin)
                 .plugin(MediaTestPlugin)
         })

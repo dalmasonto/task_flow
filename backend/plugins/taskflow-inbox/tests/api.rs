@@ -203,3 +203,21 @@ async fn an_open_review_request_naming_me_is_in_needs_you_and_leaves_when_closed
     let items = app.get_as(me.id, "/api/taskflow/inbox").await.json().await["items"].clone();
     assert!(!items.as_array().unwrap().iter().any(|i| i["kind"] == "review_request"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_daily_update_draft_asks_owners_and_admins_only() {
+    let app = TestApp::new().await;
+    let (owner, project) = seed_project(&app).await;
+    seed_member(project, owner.id, "owner").await;
+    let dev = app.create_user().await;
+    seed_member(project, dev, "developer").await;
+    let today = Utc::now().date_naive();
+    let (draft, _) = taskflow_daily::service::ensure_draft(project, today).await.unwrap();
+
+    let mine = app.get_as(owner.id, "/api/taskflow/inbox").await.json().await["items"].clone();
+    let hit: Vec<&Value> = mine.as_array().unwrap().iter().filter(|i| i["kind"] == "daily_update").collect();
+    assert_eq!(hit.len(), 1, "{mine}");
+    assert_eq!(hit[0]["daily_update"], draft.id);
+    let theirs = app.get_as(dev, "/api/taskflow/inbox").await.json().await["items"].clone();
+    assert!(!theirs.as_array().unwrap().iter().any(|i| i["kind"] == "daily_update"), "a developer cannot post it, so is not asked");
+}

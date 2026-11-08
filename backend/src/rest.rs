@@ -139,6 +139,11 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     "taskflow_usage_report",
     "taskflow_usage_settings",
     "taskflow_usage_alert",
+    // #1118: the daily update. Drafts are written ONLY by the sweep, the
+    // drafting agent's endpoint and owners/admins; posting is an endpoint that
+    // posts as the person. A client write could post or forge a draft.
+    "taskflow_daily_update",
+    "taskflow_daily_update_settings",
 ];
 
 /// Tables whose rows belong to a CHANNEL and must follow its visibility rather
