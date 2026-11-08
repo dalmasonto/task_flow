@@ -6,7 +6,7 @@
 /// project room answered by a real agent.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import type { TaskflowAgentMessage } from "@/api/client"
-import { Link, Navigate, useNavigate } from "react-router-dom"
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 import { ArrowRightIcon, BuildingIcon, CheckIcon, CircleDashedIcon, CopyIcon, MessagesSquareIcon, TriangleAlertIcon, UserIcon } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -260,8 +260,11 @@ function ModelPicker({ value, onChange, name }: { value: ModelId; onChange: (m: 
 export function OnboardingAgentsPage() {
   const navigate = useNavigate()
   const projectId = onboardingStore.projectId()
-  const [pairing, setPairing] = useState(PAIRINGS[0].id)
-  const [agents, setAgents] = useState<[AgentDraft, AgentDraft]>(PAIRINGS[0].agents)
+  // `?pairing=` preselects a pair picked on the new-project page.
+  const [searchParams] = useSearchParams()
+  const initial = PAIRINGS.find((p) => p.id === searchParams.get("pairing")) ?? PAIRINGS[0]
+  const [pairing, setPairing] = useState(initial.id)
+  const [agents, setAgents] = useState<[AgentDraft, AgentDraft]>(initial.agents)
   const [errors, setErrors] = useState<(string | null)[]>([null, null])
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)

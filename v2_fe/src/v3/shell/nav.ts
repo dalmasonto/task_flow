@@ -128,7 +128,7 @@ export function activeNavId(pathname: string): string | null {
     if (hit && (!best || item.href.length > best.href.length)) best = item
   }
   if (!best && pathname.startsWith("/v3/tasks")) return "board"
-  if (!best && pathname.startsWith("/v3/project")) return "settings"
+  if (!best && (pathname === "/v3/project" || pathname.startsWith("/v3/project/"))) return "settings"
   return best?.id ?? null
 }
 

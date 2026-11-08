@@ -9,9 +9,11 @@ import { ArrowUpRightIcon, HammerIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { Toaster } from "@/components/ui/sonner"
 
 import { V3_HOME } from "./routes"
 import { activeNavId, V2_FALLBACK, V3_NAV } from "./shell/nav"
+import { useIsDark } from "./shell/theme-action"
 import { V3Shell } from "./shell/V3Shell"
 import { useV3Document } from "./use-v3-document"
 import { PageLoading } from "./components/page-loading"
@@ -56,21 +58,29 @@ const OnboardingProjectPage = lazyNamed(() => import("./onboarding/OnboardingPag
 const OnboardingAgentsPage = lazyNamed(() => import("./onboarding/OnboardingPages"), "OnboardingAgentsPage")
 const OnboardingConnectPage = lazyNamed(() => import("./onboarding/OnboardingPages"), "OnboardingConnectPage")
 const OnboardingHelloPage = lazyNamed(() => import("./onboarding/OnboardingPages"), "OnboardingHelloPage")
+const ProjectNewPage = lazyNamed(() => import("./projects/ProjectNewPage"), "ProjectNewPage")
 
 export function V3App() {
   useV3Document()
+  const dark = useIsDark()
   return (
-    <Suspense fallback={<PageLoading />}>
-      <Routes>
-        <Route path="/v3/home" element={<Navigate to={V3_HOME} replace />} />
-        {/* Onboarding (group 2): full-screen, no app shell, as in the design. */}
-        <Route path="/v3/onboarding" element={<OnboardingTeamPage />} />
-        <Route path="/v3/onboarding/project" element={<OnboardingProjectPage />} />
-        <Route path="/v3/onboarding/agents" element={<OnboardingAgentsPage />} />
-        <Route path="/v3/onboarding/connect" element={<OnboardingConnectPage />} />
-        <Route path="/v3/onboarding/hello" element={<OnboardingHelloPage />} />
-        <Route path="*" element={<NotPortedYet />} />
-      </Routes>
-    </Suspense>
+    <>
+      {/* One toaster for all of v3; its theme follows the app's own dark class. */}
+      <Toaster theme={dark ? "dark" : "light"} position="bottom-right" />
+      <Suspense fallback={<PageLoading />}>
+        <Routes>
+          <Route path="/v3/home" element={<Navigate to={V3_HOME} replace />} />
+          {/* Onboarding (group 2): full-screen, no app shell, as in the design. */}
+          <Route path="/v3/onboarding" element={<OnboardingTeamPage />} />
+          <Route path="/v3/onboarding/project" element={<OnboardingProjectPage />} />
+          <Route path="/v3/onboarding/agents" element={<OnboardingAgentsPage />} />
+          <Route path="/v3/onboarding/connect" element={<OnboardingConnectPage />} />
+          <Route path="/v3/onboarding/hello" element={<OnboardingHelloPage />} />
+          {/* App shell (group 3). */}
+          <Route path="/v3/projects/new" element={<ProjectNewPage />} />
+          <Route path="*" element={<NotPortedYet />} />
+        </Routes>
+      </Suspense>
+    </>
   )
 }

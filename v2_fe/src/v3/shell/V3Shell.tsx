@@ -3,19 +3,16 @@
 /// workspace data, never a placeholder.
 import { useEffect, useState, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { CheckCheckIcon, ChevronRightIcon, ChevronsUpDownIcon, LogOutIcon, PlusIcon, SearchIcon, SettingsIcon, UserIcon } from "lucide-react"
+import { ChevronRightIcon, ChevronsUpDownIcon, LogOutIcon, PlusIcon, SearchIcon, SettingsIcon, UserIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -41,7 +38,9 @@ import { cn } from "@/lib/utils"
 
 import { V3_LOGIN } from "../routes"
 import { useWorkspace, type V3Workspace } from "../workspace"
+import { CommandPalette } from "./CommandPalette"
 import { activeNavId, V3_NAV, type NavItem } from "./nav"
+import { ProjectSwitcher } from "./ProjectSwitcher"
 
 function NavLink({ item, active, counts }: { item: NavItem; active: boolean; counts: V3Workspace["counts"] }) {
   const n = item.count ? counts[item.count] : 0
@@ -59,35 +58,6 @@ function NavLink({ item, active, counts }: { item: NavItem; active: boolean; cou
         </SidebarMenuBadge>
       ) : null}
     </SidebarMenuItem>
-  )
-}
-
-function ProjectSwitcher() {
-  const { projects, activeProject, chooseProject } = useWorkspace()
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="aria-expanded:bg-sidebar-accent" />}>
-        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <CheckCheckIcon className="size-4" />
-        </span>
-        <span className="grid min-w-0 flex-1 text-left leading-tight">
-          <span className="truncate text-sm font-semibold">{activeProject?.name ?? "No project"}</span>
-          <span className="truncate text-xs text-muted-foreground">TaskFlow</span>
-        </span>
-        <ChevronsUpDownIcon className="ml-auto size-4 text-muted-foreground" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-64" align="start">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Projects</DropdownMenuLabel>
-          {projects.map((p) => (
-            <DropdownMenuItem key={p.id} onClick={() => chooseProject(p.id)}>
-              <span className="truncate">{p.name}</span>
-              <span className="ml-auto text-xs tabular-nums text-muted-foreground">{p.taskCount}</span>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 
@@ -128,50 +98,6 @@ function UserMenu() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
-}
-
-function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const navigate = useNavigate()
-  const { projects, chooseProject } = useWorkspace()
-  const go = (to: string) => {
-    onOpenChange(false)
-    navigate(to)
-  }
-  return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="Search" description="Jump to a page or project">
-      {/* This shadcn version's CommandDialog doesn't provide the cmdk root itself. */}
-      <Command>
-        <CommandInput placeholder="Search or jump to…" />
-        <CommandList>
-          <CommandEmpty>Nothing matches.</CommandEmpty>
-          {V3_NAV.map((group) => (
-            <CommandGroup key={group.title} heading={group.title}>
-              {group.items.map((item) => (
-                <CommandItem key={item.id} onSelect={() => go(item.href)}>
-                  <item.icon />
-                  {item.label}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          ))}
-          <CommandGroup heading="Projects">
-            {projects.map((p) => (
-              <CommandItem
-                key={p.id}
-                value={`project ${p.name}`}
-                onSelect={() => {
-                  chooseProject(p.id)
-                  onOpenChange(false)
-                }}
-              >
-                {p.name}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        </CommandList>
-      </Command>
-    </CommandDialog>
   )
 }
 
