@@ -655,6 +655,12 @@ pub async fn send_message(
         }
     };
 
+    // #5918: an archived room is read-only (checked after membership, so it
+    // tells a non-member nothing).
+    if channel.archived {
+        return Err(StatusCode::CONFLICT);
+    }
+
     // #317: a reply must answer a message in this same channel. Checked
     // after membership, so a non-member cannot probe which ids a room holds.
     let reply_to = validate_reply_to(channel.id, reply_to).await?;
@@ -1200,13 +1206,17 @@ pub async fn create_channel(
     Ok((StatusCode::CREATED, Json(value)).into_response())
 }
 
-/// The only field a client may assert: which person to add. The channel comes
-/// from the PATH and the caller's identity from the auth token — neither is a
-/// body field, so there is nothing to forge. Agents are out of scope: this
-/// endpoint adds people (`user`), never agents.
+/// The only field a client may assert: who to add, exactly one of a person
+/// (`user`) or an agent of the room's project (`agent`, #5932). The channel
+/// comes from the PATH and the caller's identity from the auth token, so
+/// there is nothing to forge.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AddChannelMemberInput {
-    pub user: i64,
+    #[serde(default)]
+    pub user: Option<i64>,
+    #[serde(default)]
+    pub agent: Option<i64>,
 }
 
 /// The 400 body for "the target isn't a project member", shaped like auto-REST's
@@ -1298,13 +1308,24 @@ pub async fn add_channel_member(
         }
     }
 
+    // #5932: an archived room is read-only.
+    if channel.archived {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let target_user = match (input.user, input.agent) {
+        (Some(u), None) => u,
+        (None, Some(agent_id)) => return add_agent_member(&channel, agent_id).await,
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+
     // Target gate: the person being added must be an active project member too —
     // you cannot add an outsider. A clear field error the frontend can render
     // inline, not a bare 400.
     let target_member = match TaskflowProjectMember::objects()
         .filter(
             taskflow_project_member::PROJECT.eq(project_id)
-                & taskflow_project_member::USER.eq(input.user)
+                & taskflow_project_member::USER.eq(target_user)
                 & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
         )
         .first()
@@ -1321,7 +1342,7 @@ pub async fn add_channel_member(
     if let Some(existing) = TaskflowAgentChannelMember::objects()
         .filter(
             taskflow_agent_channel_member::CHANNEL.eq(channel.id)
-                & taskflow_agent_channel_member::USER.eq(input.user),
+                & taskflow_agent_channel_member::USER.eq(target_user),
         )
         .first()
         .await
@@ -1339,7 +1360,7 @@ pub async fn add_channel_member(
             project: ForeignKey::new(project_id),
             channel: ForeignKey::new(channel.id),
             member_kind: TaskflowChannelMemberKind::User,
-            user: Some(ForeignKey::new(input.user)),
+            user: Some(ForeignKey::new(target_user)),
             agent: None,
             display_name: target_member.display_name.clone(),
             role: CHANNEL_ROLE_MEMBER.to_string(),
@@ -1348,6 +1369,47 @@ pub async fn add_channel_member(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    Ok((StatusCode::CREATED, Json(created)).into_response())
+}
+
+/// #5932: add an agent of the room's project (not revoked) to its roster.
+/// Idempotent like the person path. The caller gates already ran.
+async fn add_agent_member(channel: &TaskflowAgentChannel, agent_id: i64) -> Result<Response, StatusCode> {
+    let agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id) & taskflow_agent::PROJECT.eq(channel.project.id()))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter(|a| a.status != TaskflowAgentStatus::Revoked);
+    let Some(agent) = agent else {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "code": "invalid", "agent": ["That agent isn't active in this project."] })),
+        )
+            .into_response());
+    };
+    if let Some(existing) = TaskflowAgentChannelMember::objects()
+        .filter(taskflow_agent_channel_member::CHANNEL.eq(channel.id) & taskflow_agent_channel_member::AGENT.eq(agent.id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        return Ok((StatusCode::OK, Json(existing)).into_response());
+    }
+    let created = TaskflowAgentChannelMember::objects()
+        .create(TaskflowAgentChannelMember {
+            id: 0,
+            project: ForeignKey::new(channel.project.id()),
+            channel: ForeignKey::new(channel.id),
+            member_kind: TaskflowChannelMemberKind::Agent,
+            user: None,
+            agent: Some(ForeignKey::new(agent.id)),
+            display_name: agent.display_name.clone(),
+            role: CHANNEL_ROLE_MEMBER.to_string(),
+            joined_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -2107,6 +2169,7 @@ pub async fn send_message_as_agent(
         Ok(channel) => channel,
         Err(crate::posting::PostError::ChannelNotFound) => return Err(StatusCode::NOT_FOUND.into()),
         Err(crate::posting::PostError::NotAllowed) => return Err(StatusCode::FORBIDDEN.into()),
+        Err(crate::posting::PostError::Archived) => return Err(StatusCode::CONFLICT.into()),
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR.into()),
     };
     // The DESTINATION decides, exactly as on the human path — `is_design` is

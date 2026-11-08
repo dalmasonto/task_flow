@@ -346,6 +346,10 @@ async fn usable_channel(project: i64, channel: i64, actor: &Actor) -> Result<i64
         .await
         .map_err(internal)?
         .ok_or_else(|| bad("channel", "not a channel in this project"))?;
+    // #5918: an archived room is read-only.
+    if row.archived {
+        return Err(bad("channel", "that room is archived"));
+    }
     if row.kind.is_private() {
         let roster = TaskflowAgentChannelMember::objects().filter(taskflow_agent_channel_member::CHANNEL.eq(row.id));
         let on_roster = match actor {
