@@ -141,6 +141,8 @@ async fn message_in(channel: i64, message: i64) -> Result<TaskflowAgentMessage, 
 }
 
 fn excerpt(body: &str) -> String {
+    // #6003: chips read as `@Name`, as in the room summary.
+    let body = crate::summary::strip_chips(body);
     let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= EXCERPT {
         return flat;

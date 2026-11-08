@@ -55,7 +55,12 @@ async fn pinning() {
     assert_eq!(app.post_as(me, &pins, json!({ "message": b })).await.status(), 201);
     assert_eq!(app.post_as(me, &pins, json!({ "message": elsewhere })).await.status(), 404);
     assert_eq!(app.post_as(me, &pins, json!({ "message": a, "note": "x" })).await.status(), 422);
+    // #6003: a chip in the pinned message reads as `@Name` in the excerpt.
+    let mut v = serde_json::Map::new();
+    v.insert("body_markdown".into(), json!("ship it [@Ann](user:3)"));
+    TaskflowAgentMessage::objects().filter(taskflow_agent_message::ID.eq(b)).update_values(v).await.unwrap();
     let list = app.get_as(me, &pins).await.json().await;
+    assert_eq!(list[0]["excerpt"], "ship it @Ann", "{list}");
     let ids: Vec<i64> = list.as_array().unwrap().iter().map(|p| p["message"].as_i64().unwrap()).collect();
     assert_eq!(ids, vec![b, a], "newest pin first");
     assert!(list[0]["excerpt"].is_string());

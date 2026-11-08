@@ -68,6 +68,13 @@ fn admit(who: &str, channel: i64) -> bool {
     true
 }
 
+/// True if `(who, channel)` sent within [`THROTTLE`] (read-only).
+fn throttled(who: &str, channel: i64) -> bool {
+    let now = Instant::now();
+    let m = last_sent().lock().unwrap_or_else(|p| p.into_inner());
+    m.get(&(who.to_string(), channel)).is_some_and(|t| now.duration_since(*t) < THROTTLE)
+}
+
 /// Test hook: forget the throttle state.
 #[doc(hidden)]
 pub fn reset_throttle() {
@@ -131,8 +138,17 @@ async fn publish(channel: TaskflowAgentChannel, who_kind: &str, who_id: i64, lab
         return Err(err(StatusCode::CONFLICT, "archived", "This room is archived."));
     }
     let project = channel.project.id();
+    if channel.kind.is_private() {
+        return Ok(Json(json!({ "published": false })).into_response());
+    }
+    // Validate before admitting, so a bad context isn't charged a throttle
+    // slot; but a throttled call never reaches the context's SELECT (#5999).
+    let key = format!("{who_kind}:{who_id}");
+    if throttled(&key, channel.id) {
+        return Ok(Json(json!({ "published": false })).into_response());
+    }
     let context = context_json(project, context).await?;
-    if channel.kind.is_private() || !admit(&format!("{who_kind}:{who_id}"), channel.id) {
+    if !admit(&key, channel.id) {
         return Ok(Json(json!({ "published": false })).into_response());
     }
     let until = chrono::Utc::now() + chrono::Duration::seconds(SHOW_FOR_SECS);
