@@ -44,6 +44,7 @@ use taskflow_decisions::TaskflowDecisionsPlugin;
 use taskflow_usage::TaskflowUsagePlugin;
 use taskflow_inbox::TaskflowInboxPlugin;
 use taskflow_daily::TaskflowDailyPlugin;
+use taskflow_orgs::TaskflowOrgsPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
 use umbral::prelude::*;
@@ -228,6 +229,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // #1118: the daily update — drafted on a schedule (facts only, never
         // posted), improved by the drafting agent, posted by an owner/admin.
         .plugin(TaskflowDailyPlugin::default())
+        // #1133: organisations (additive; org roles gate only /api/taskflow/orgs).
+        .plugin(TaskflowOrgsPlugin)
         // Admin: auto CRUD UI at /admin/ for every registered model.
         // The dashboard mounts one builtin widget from `widgets/` so a
         // fresh admin isn't empty — add your own with `.dashboard_section`.

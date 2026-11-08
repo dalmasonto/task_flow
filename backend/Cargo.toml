@@ -27,6 +27,7 @@ taskflow-decisions = { path = "plugins/taskflow-decisions" }
 taskflow-usage = { path = "plugins/taskflow-usage" }
 taskflow-inbox = { path = "plugins/taskflow-inbox" }
 taskflow-daily = { path = "plugins/taskflow-daily" }
+taskflow-orgs = { path = "plugins/taskflow-orgs" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }
 taskflow-projects = { path = "plugins/taskflow-projects" }
 taskflow-github = { path = "plugins/taskflow-github" }

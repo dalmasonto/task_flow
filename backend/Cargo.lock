@@ -338,6 +338,7 @@ dependencies = [
  "taskflow-design",
  "taskflow-github",
  "taskflow-inbox",
+ "taskflow-orgs",
  "taskflow-projects",
  "taskflow-tasks",
  "taskflow-toolbox",
@@ -3737,6 +3738,26 @@ dependencies = [
  "umbral",
  "umbral-auth",
  "umbral-testing",
+]
+
+[[package]]
+name = "taskflow-orgs"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "http",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "taskflow-projects",
+ "tokio",
+ "tracing",
+ "umbral",
+ "umbral-auth",
+ "umbral-testing",
+ "uuid",
 ]
 
 [[package]]
