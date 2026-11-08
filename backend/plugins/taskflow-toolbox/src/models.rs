@@ -100,6 +100,15 @@ pub struct ToolboxEntry {
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]
     pub updated_at: Option<DateTime<Utc>>,
+    /// #1097: when a person or agent last confirmed this entry is still true —
+    /// set on every save and by "re-check" (which changes nothing else). A
+    /// `status` fact older than [`crate::views::STALE_AFTER_DAYS`] shows as stale.
+    pub checked_at: Option<DateTime<Utc>>,
+    /// #1097, memories only: `rule` (durable — "never push to main") or
+    /// `status` (a fact that drifts — "prod runs 2.18.1"). Only status facts go
+    /// stale. NULL = not classified: shown with its age, never flagged stale.
+    #[umbral(string, max_length = 10)]
+    pub fact_kind: Option<String>,
 }
 
 /// One past state of an entry, written on every save. Restoring a version is

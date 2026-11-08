@@ -103,9 +103,63 @@ fn entry_index_json(entry: &ToolboxEntry) -> Value {
         "run_fail_count": entry.run_fail_count,
         "author_label": entry.author_label,
         "updated_at": entry.updated_at,
+        "checked_at": entry.checked_at,
+        "fact_kind": entry.fact_kind,
+        "stale": is_stale(entry, chrono::Utc::now()),
+        "stale_after_days": STALE_AFTER_DAYS,
         // NEVER `code` and never `body_markdown`: a listing must not load a
         // script into anyone's context (acceptance 6).
     })
+}
+
+/// #1097: a `status` memory not re-checked for this long shows as stale.
+pub const STALE_AFTER_DAYS: i64 = 14;
+
+/// Only a memory explicitly marked `status` goes stale; rules never do, and
+/// unclassified entries show their age without a flag.
+pub fn is_stale(entry: &ToolboxEntry, now: chrono::DateTime<chrono::Utc>) -> bool {
+    entry.kind == ToolboxKind::Memory
+        && entry.fact_kind.as_deref() == Some("status")
+        && entry
+            .checked_at
+            .or(entry.updated_at)
+            .is_none_or(|t| now - t > chrono::Duration::days(STALE_AFTER_DAYS))
+}
+
+/// #1097: confirm an entry is still true. Moves `checked_at` only — no new
+/// version, no re-approval, and the content is untouched.
+async fn recheck_core(project_id: i64, name: &str) -> Result<ToolboxEntry, ApiError> {
+    let mut entry = ToolboxEntry::objects()
+        .filter(toolbox_entry::PROJECT.eq(project_id) & toolbox_entry::NAME.eq(name))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "entry"))?;
+    entry.checked_at = Some(chrono::Utc::now());
+    ToolboxEntry::objects()
+        .save(entry)
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))
+}
+
+/// `POST /api/taskflow/toolbox/{project}/entry/{name}/recheck`
+pub async fn recheck(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path((project_id, name)): Path<(i64, String)>,
+) -> Result<Response, ApiError> {
+    ensure_member(user_id, project_id).await?;
+    let entry = recheck_core(project_id, &name).await?;
+    Ok(Json(entry_index_json(&entry)).into_response())
+}
+
+/// `POST /api/taskflow/agents/toolbox/{name}/recheck` (toolbox:write)
+pub async fn agent_recheck(
+    RequireAgent(agent): RequireAgent,
+    Path(name): Path<String>,
+) -> Result<Response, ApiError> {
+    require_toolbox_write(&agent)?;
+    let entry = recheck_core(agent.project_id, &name).await?;
+    Ok(Json(entry_index_json(&entry)).into_response())
 }
 
 fn entry_full_json(entry: &ToolboxEntry) -> Value {
@@ -228,6 +282,9 @@ pub struct SaveBody {
     /// Return the redaction report without saving.
     #[serde(default)]
     pub dry_run: bool,
+    /// #1097: `rule` or `status` (memories only).
+    #[serde(default)]
+    pub fact_kind: Option<String>,
 }
 
 /// The core save: validate, scan for secrets (reject), redact identifiers
@@ -258,6 +315,18 @@ pub async fn save_entry_core(
         .kind
         .or_else(|| existing.as_ref().map(|entry| entry.kind))
         .unwrap_or(ToolboxKind::Memory);
+
+    // #1097: rule vs status is a memory's property; a script's freshness is its runs.
+    let fact_kind = match body.fact_kind.as_deref() {
+        None => existing.as_ref().and_then(|entry| entry.fact_kind.clone()),
+        Some("rule") | Some("status") if kind == ToolboxKind::Memory => body.fact_kind.clone(),
+        Some("rule") | Some("status") => {
+            return Err(rejected(json!({ "error": "invalid_fact_kind", "field": "fact_kind", "detail": "fact_kind is for memories" })));
+        }
+        Some(_) => {
+            return Err(rejected(json!({ "error": "invalid_fact_kind", "field": "fact_kind", "detail": "rule or status" })));
+        }
+    };
 
     // A script without code is not a script.
     let code = body.code.clone().or_else(|| existing.as_ref().and_then(|entry| entry.code.clone()));
@@ -332,6 +401,8 @@ pub async fn save_entry_core(
             run_fail_count: 0,
             created_at: None,
             updated_at: None,
+            checked_at: None,
+            fact_kind: fact_kind.clone(),
         });
         return Ok((placeholder, redactions));
     }
@@ -416,6 +487,8 @@ pub async fn save_entry_core(
                     run_fail_count: 0,
                     created_at: None,
                     updated_at: Some(now),
+                    checked_at: Some(now),
+                    fact_kind: fact_kind.clone(),
                 })
                 .await
                 .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
@@ -463,6 +536,8 @@ pub async fn save_entry_core(
             }
             entry.version = next_version;
             entry.updated_at = Some(now);
+            entry.checked_at = Some(now);
+            entry.fact_kind = fact_kind.clone();
             ToolboxEntry::objects()
                 .save(entry)
                 .await
@@ -609,6 +684,8 @@ pub async fn restore_version(
         base_version: Some(entry.version),
         note: Some(body.note.unwrap_or_else(|| format!("restored from version {}", body.version))),
         dry_run: false,
+        // Restoring content does not reclassify the entry.
+        fact_kind: None,
     };
     let (saved, redactions) = save_entry_core(project_id, &name, save, None, Some(user_id), label).await?;
     Ok((StatusCode::OK, Json(json!({ "entry": entry_full_json(&saved), "redactions": redactions }))).into_response())
