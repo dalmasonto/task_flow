@@ -43,6 +43,12 @@ const MICROS: i64 = 1_000_000;
 pub const SEED_SOURCE: &str = "Anthropic API list price (first-party), claude-api reference";
 pub const SEED_AS_OF: &str = "2026-10-06";
 
+/// Tiers from the same cited table: (prefix, above prompt tokens, input, output).
+const SEED_TIERS: &[(&str, i64, f64, f64)] = &[
+    // Haiku 5.5: $0.10 / $0.50 up to 100K prompt tokens, $0.50 / $2.50 beyond.
+    ("claude-haiku-5-5", 100_000, 0.50, 2.50),
+];
+
 /// (prefix, name, input, output, cache read) in USD per million tokens. Cache
 /// write is not in the cited table, so it is NULL everywhere.
 const SEED: &[(&str, &str, f64, f64, Option<f64>)] = &[
@@ -57,7 +63,7 @@ const SEED: &[(&str, &str, f64, f64, Option<f64>)] = &[
     ("claude-sonnet-5", "Claude Sonnet 5", 2.0, 10.0, None),
     ("claude-sonnet-4-6", "Claude Sonnet 4.6", 3.0, 15.0, None),
     // Haiku 5.5 is tiered by prompt size; this is the ≤100K-token rate.
-    ("claude-haiku-5-5", "Claude Haiku 5.5 (prompts up to 100K)", 0.10, 0.50, None),
+    ("claude-haiku-5-5", "Claude Haiku 5.5", 0.10, 0.50, None),
     ("claude-haiku-4-5", "Claude Haiku 4.5", 1.0, 5.0, None),
 ];
 
@@ -76,6 +82,7 @@ pub async fn seed_prices() {
         if exists {
             continue;
         }
+        let tier = SEED_TIERS.iter().find(|t| t.0 == *prefix);
         let _ = TaskflowModelPrice::objects()
             .create(TaskflowModelPrice {
                 id: 0,
@@ -86,6 +93,11 @@ pub async fn seed_prices() {
                 output_micros_per_mtok: Some(usd(*output)),
                 cache_read_micros_per_mtok: cache_read.map(usd),
                 cache_write_micros_per_mtok: None,
+                tier_above_prompt_tokens: tier.map(|t| t.1),
+                tier_input_micros_per_mtok: tier.map(|t| usd(t.2)),
+                tier_output_micros_per_mtok: tier.map(|t| usd(t.3)),
+                tier_cache_read_micros_per_mtok: None,
+                tier_cache_write_micros_per_mtok: None,
                 source: SEED_SOURCE.to_string(),
                 as_of: SEED_AS_OF.to_string(),
                 updated_by_label: "seed".to_string(),
@@ -108,6 +120,13 @@ pub async fn price_for(project: i64, model: &str) -> Option<TaskflowModelPrice> 
 
 /// micro-dollars for one report, or None when any NEEDED component is unknown.
 pub fn cost(p: &TaskflowModelPrice, input: i64, output: i64, cache_read: i64, cache_write: i64) -> Option<i64> {
+    let prompt = input + cache_read + cache_write;
+    let upper = p.tier_above_prompt_tokens.is_some_and(|t| prompt > t);
+    let (pi, po, pr, pw) = if upper {
+        (p.tier_input_micros_per_mtok, p.tier_output_micros_per_mtok, p.tier_cache_read_micros_per_mtok, p.tier_cache_write_micros_per_mtok)
+    } else {
+        (p.input_micros_per_mtok, p.output_micros_per_mtok, p.cache_read_micros_per_mtok, p.cache_write_micros_per_mtok)
+    };
     let part = |tokens: i64, price: Option<i64>| -> Option<i128> {
         if tokens == 0 {
             Some(0)
@@ -115,10 +134,7 @@ pub fn cost(p: &TaskflowModelPrice, input: i64, output: i64, cache_read: i64, ca
             price.map(|per| tokens as i128 * per as i128 / MICROS as i128)
         }
     };
-    let total = part(input, p.input_micros_per_mtok)?
-        + part(output, p.output_micros_per_mtok)?
-        + part(cache_read, p.cache_read_micros_per_mtok)?
-        + part(cache_write, p.cache_write_micros_per_mtok)?;
+    let total = part(input, pi)? + part(output, po)? + part(cache_read, pr)? + part(cache_write, pw)?;
     i64::try_from(total).ok()
 }
 
@@ -437,6 +453,9 @@ pub fn price_json(p: &TaskflowModelPrice) -> Value {
         "model_prefix": p.model_prefix, "display_name": p.display_name,
         "input_micros_per_mtok": p.input_micros_per_mtok, "output_micros_per_mtok": p.output_micros_per_mtok,
         "cache_read_micros_per_mtok": p.cache_read_micros_per_mtok, "cache_write_micros_per_mtok": p.cache_write_micros_per_mtok,
+        "tier_above_prompt_tokens": p.tier_above_prompt_tokens,
+        "tier_input_micros_per_mtok": p.tier_input_micros_per_mtok, "tier_output_micros_per_mtok": p.tier_output_micros_per_mtok,
+        "tier_cache_read_micros_per_mtok": p.tier_cache_read_micros_per_mtok, "tier_cache_write_micros_per_mtok": p.tier_cache_write_micros_per_mtok,
         "source": p.source, "as_of": p.as_of, "updated_by_label": p.updated_by_label, "updated_at": p.updated_at,
     })
 }
@@ -467,6 +486,16 @@ pub struct PriceInput {
     pub cache_read_micros_per_mtok: Option<i64>,
     #[serde(default)]
     pub cache_write_micros_per_mtok: Option<i64>,
+    #[serde(default)]
+    pub tier_above_prompt_tokens: Option<i64>,
+    #[serde(default)]
+    pub tier_input_micros_per_mtok: Option<i64>,
+    #[serde(default)]
+    pub tier_output_micros_per_mtok: Option<i64>,
+    #[serde(default)]
+    pub tier_cache_read_micros_per_mtok: Option<i64>,
+    #[serde(default)]
+    pub tier_cache_write_micros_per_mtok: Option<i64>,
     /// Required: where the figure comes from.
     pub source: String,
     /// Required: when it was true.
@@ -493,10 +522,17 @@ pub async fn save_price(project: i64, label: &str, input: PriceInput) -> Result<
         ("output_micros_per_mtok", input.output_micros_per_mtok),
         ("cache_read_micros_per_mtok", input.cache_read_micros_per_mtok),
         ("cache_write_micros_per_mtok", input.cache_write_micros_per_mtok),
+        ("tier_input_micros_per_mtok", input.tier_input_micros_per_mtok),
+        ("tier_output_micros_per_mtok", input.tier_output_micros_per_mtok),
+        ("tier_cache_read_micros_per_mtok", input.tier_cache_read_micros_per_mtok),
+        ("tier_cache_write_micros_per_mtok", input.tier_cache_write_micros_per_mtok),
     ] {
         if v.is_some_and(|v| !(0..=10_000 * MICROS).contains(&v)) {
             return Err(bad(name, "0 to $10,000 per million tokens"));
         }
+    }
+    if input.tier_above_prompt_tokens.is_some_and(|t| !(1..=100_000_000).contains(&t)) {
+        return Err(bad("tier_above_prompt_tokens", "1 to 100,000,000"));
     }
     let existing = TaskflowModelPrice::objects()
         .filter(taskflow_model_price::PROJECT.eq(project) & taskflow_model_price::MODEL_PREFIX.eq(prefix.as_str()))
@@ -512,6 +548,11 @@ pub async fn save_price(project: i64, label: &str, input: PriceInput) -> Result<
         output_micros_per_mtok: input.output_micros_per_mtok,
         cache_read_micros_per_mtok: input.cache_read_micros_per_mtok,
         cache_write_micros_per_mtok: input.cache_write_micros_per_mtok,
+        tier_above_prompt_tokens: input.tier_above_prompt_tokens,
+        tier_input_micros_per_mtok: input.tier_input_micros_per_mtok,
+        tier_output_micros_per_mtok: input.tier_output_micros_per_mtok,
+        tier_cache_read_micros_per_mtok: input.tier_cache_read_micros_per_mtok,
+        tier_cache_write_micros_per_mtok: input.tier_cache_write_micros_per_mtok,
         source: input.source.trim().to_string(),
         as_of: input.as_of.trim().to_string(),
         updated_by_label: label.to_string(),

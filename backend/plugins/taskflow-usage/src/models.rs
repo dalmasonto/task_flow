@@ -33,6 +33,15 @@ pub struct TaskflowModelPrice {
     pub output_micros_per_mtok: Option<i64>,
     pub cache_read_micros_per_mtok: Option<i64>,
     pub cache_write_micros_per_mtok: Option<i64>,
+    /// Tiered pricing (#1115 review): when a turn's PROMPT (input + cache read
+    /// + cache write) is larger than this many tokens, the `tier_*` prices
+    /// apply instead. NULL = one tier. A NULL tier component with a threshold
+    /// set makes a long-prompt report unpriced, never priced at the low rate.
+    pub tier_above_prompt_tokens: Option<i64>,
+    pub tier_input_micros_per_mtok: Option<i64>,
+    pub tier_output_micros_per_mtok: Option<i64>,
+    pub tier_cache_read_micros_per_mtok: Option<i64>,
+    pub tier_cache_write_micros_per_mtok: Option<i64>,
     /// Where the price comes from ("Anthropic API list price", a URL…).
     #[umbral(string, max_length = 300)]
     pub source: String,

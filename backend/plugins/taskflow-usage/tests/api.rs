@@ -226,3 +226,18 @@ async fn reporting_needs_activity_write() {
     let (key, _) = seed_agent_key(project, &["activity:write"]).await;
     assert_eq!(app.post_json_as_agent(&key, R, report("z", "claude-opus-5-5", 1, 1, 0, 0)).await.status(), 403);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_prompt_haiku_turn_is_priced_at_the_upper_tier() {
+    let (app, _, _, key, _) = boot().await;
+    // Up to 100K prompt tokens: $0.10 / $0.50.
+    let low = app.post_json_as_agent(&key, R, report("h1", "claude-haiku-5-5", 100_000, 1_000_000, 0, 0)).await.json().await;
+    assert_eq!(low["cost_micros"], 10_000 + 500_000);
+    // 150K input: the $0.50 / $2.50 tier — not 5x too cheap.
+    let high = app.post_json_as_agent(&key, R, report("h2", "claude-haiku-5-5", 150_000, 1_000_000, 0, 0)).await.json().await;
+    assert_eq!(high["cost_micros"], 75_000 + 2_500_000);
+    // Cache reads count toward the prompt size; the upper tier has no cited cache
+    // price, so that turn is unpriced rather than priced at the low rate.
+    let cached = app.post_json_as_agent(&key, R, report("h3", "claude-haiku-5-5", 50_000, 10, 60_000, 0)).await.json().await;
+    assert_eq!(cached["cost_micros"], Value::Null);
+}
