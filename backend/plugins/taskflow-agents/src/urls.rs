@@ -148,6 +148,24 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/claims",
             get(crate::claims::channel_claims),
         )
+        // #1113: wake-up rules. Humans (members) manage any rule in the project;
+        // agents manage the rules they made or that wake them.
+        .route(
+            "/api/taskflow/wakeups/{project}",
+            get(crate::wakeups::list_as_user).post(crate::wakeups::create_as_user),
+        )
+        .route(
+            "/api/taskflow/wakeups/{project}/{rule}/{action}",
+            post(crate::wakeups::act_as_user),
+        )
+        .route(
+            "/api/taskflow/agents/wakeups",
+            get(crate::wakeups::list_as_agent).post(crate::wakeups::create_as_agent),
+        )
+        .route(
+            "/api/taskflow/agents/wakeups/{rule}/{action}",
+            post(crate::wakeups::act_as_agent),
+        )
         // Read receipts / unread cursors. The human path is auth-gated; the agent
         // path is `RequireAgent`-gated. Both upsert the caller's own cursor
         // forward-only; the channel comes from the path.

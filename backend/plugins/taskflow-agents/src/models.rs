@@ -739,3 +739,94 @@ pub struct TaskflowMessageClaim {
     pub expires_at: DateTime<Utc>,
     pub released_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowWakeTrigger {
+    /// `fire_at` passes.
+    AfterTime,
+    /// `target_task` stops being blocked (status not `blocked`, no open decision).
+    TaskUnblocked,
+    /// A message arrives with `reply_to = target_message`.
+    ReplyToMessage,
+    /// A message is posted in `watch_channel` (optionally only one mentioning the agent).
+    MessageInRoom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowWakeDeliver {
+    /// A targeted notice in the agent's private "Wake-ups" DM (reaches its pane).
+    Pane,
+    /// A targeted message in `deliver_channel`.
+    Room,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowWakeStatus {
+    Armed,
+    /// Fired and delivered.
+    Fired,
+    /// Fired while the agent had no live session; delivered on its next one.
+    Missed,
+    Paused,
+    Cancelled,
+}
+
+/// #1113: a wake-up rule — "wake this agent when X" (#886 §3.2).
+///
+/// Delivery is ALWAYS a chat message (never a raw terminal input), so it rides
+/// the MCP's pane queue and prompt gate: a wake-up can never answer a
+/// permission prompt by typing into the pane. Written ONLY by `wakeups.rs`;
+/// auto-REST serves it read-only and project-scoped.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["project", "status", "id"], ["agent", "status", "id"], ["trigger_kind", "status"]])]
+pub struct TaskflowWakeRule {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    /// The agent this rule wakes.
+    #[umbral(on_delete = "cascade")]
+    pub agent: ForeignKey<TaskflowAgent>,
+    #[umbral(on_delete = "set_null")]
+    pub created_by_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub created_by_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub created_by_label: String,
+    #[umbral(choices, default = "after_time")]
+    pub trigger_kind: TaskflowWakeTrigger,
+    pub target_task: Option<i64>,
+    pub target_message: Option<i64>,
+    #[umbral(on_delete = "cascade")]
+    pub watch_channel: Option<ForeignKey<TaskflowAgentChannel>>,
+    #[umbral(default = "false")]
+    pub mentions_only: bool,
+    pub fire_at: Option<DateTime<Utc>>,
+    /// What the agent reads when the rule fires.
+    #[umbral(string, max_length = 1000)]
+    pub note: String,
+    #[umbral(choices, default = "pane")]
+    pub deliver: TaskflowWakeDeliver,
+    #[umbral(on_delete = "set_null")]
+    pub deliver_channel: Option<ForeignKey<TaskflowAgentChannel>>,
+    /// The agent's private "Wake-ups" DM, once one has been made for it.
+    #[umbral(on_delete = "set_null")]
+    pub pane_channel: Option<ForeignKey<TaskflowAgentChannel>>,
+    #[umbral(choices, default = "armed")]
+    pub status: TaskflowWakeStatus,
+    pub fired_at: Option<DateTime<Utc>>,
+    pub delivered_at: Option<DateTime<Utc>>,
+    /// What fired it ("message:123", "task:45", "time").
+    #[umbral(string, max_length = 120)]
+    pub source_ref: Option<String>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[umbral(noedit)]
+    pub updated_at: Option<DateTime<Utc>>,
+}

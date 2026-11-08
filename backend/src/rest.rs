@@ -123,6 +123,9 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     "taskflow_decision_option",
     "taskflow_decision_task",
     "taskflow_decision_comment",
+    // #1113: wake-up rules. Written ONLY by the wake-up endpoints, which decide
+    // who may aim a notice at an agent's pane. A client write could aim one.
+    "taskflow_wake_rule",
 ];
 
 /// Tables whose rows belong to a CHANNEL and must follow its visibility rather

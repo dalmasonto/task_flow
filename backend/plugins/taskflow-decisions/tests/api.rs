@@ -386,3 +386,40 @@ async fn a_named_ruler_cannot_be_routed_around_by_superseding() {
         .await;
     assert_eq!(member_rules.status(), 403, "{}", member_rules.text());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ruling_a_decision_fires_a_task_unblocked_wake_up() {
+    use taskflow_agents::models::{TaskflowWakeDeliver, TaskflowWakeRule, TaskflowWakeStatus, TaskflowWakeTrigger, taskflow_wake_rule};
+    use umbral::orm::ForeignKey;
+
+    let app = TestApp::new().await;
+    let (owner, project) = seed_project(&app).await;
+    seed_member(project, owner.id, "owner").await;
+    let (_, agent) = seed_agent_key(project, &[]).await;
+    let t = seed_task(project, "Waits on a ruling").await;
+    let d = app.post_json_as(owner.id, &base(project), json!({ "key": "wake-gate", "question": "Go?", "options": options(), "task_ids": [t] })).await.json().await;
+
+    // The agent waits for the task (decision-blocked, so the rule is valid).
+    let rule = TaskflowWakeRule::objects()
+        .create(TaskflowWakeRule {
+            id: 0, project: ForeignKey::new(project), agent: ForeignKey::new(agent), created_by_user: None,
+            created_by_agent: Some(ForeignKey::new(agent)), created_by_label: "agent".into(),
+            trigger_kind: TaskflowWakeTrigger::TaskUnblocked, target_task: Some(t), target_message: None,
+            watch_channel: None, mentions_only: false, fire_at: None, note: "the gate is ruled".into(),
+            deliver: TaskflowWakeDeliver::Pane, deliver_channel: None, pane_channel: None,
+            status: TaskflowWakeStatus::Armed, fired_at: None, delivered_at: None, source_ref: None,
+            created_at: None, updated_at: None,
+        })
+        .await
+        .unwrap();
+    // While the decision is open, a task write must NOT fire it.
+    taskflow_agents::wakeups::task_maybe_unblocked(t).await;
+    let still = TaskflowWakeRule::objects().filter(taskflow_wake_rule::ID.eq(rule.id)).first().await.unwrap().unwrap();
+    assert_eq!(still.status, TaskflowWakeStatus::Armed, "still blocked by the open decision");
+
+    app.post_json_as(owner.id, &format!("{}/d/wake-gate/rule", base(project)), json!({ "option_id": option_id(&d, "1 hour") })).await;
+    let fired = TaskflowWakeRule::objects().filter(taskflow_wake_rule::ID.eq(rule.id)).first().await.unwrap().unwrap();
+    // The agent has no live session here, so it is fired-then-missed: either way, not armed.
+    assert_ne!(fired.status, TaskflowWakeStatus::Armed, "the ruling woke it");
+    assert_eq!(fired.source_ref.as_deref(), Some(format!("task:{t}").as_str()));
+}

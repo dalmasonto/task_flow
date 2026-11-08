@@ -21,7 +21,7 @@ pub mod service;
 pub mod urls;
 pub mod views;
 
-use umbral::plugin::Plugin;
+use umbral::plugin::{AppContext, Plugin, PluginError};
 use umbral::web::Router;
 
 #[derive(Debug, Default, Clone)]
@@ -47,5 +47,15 @@ impl Plugin for TaskflowDecisionsPlugin {
 
     fn routes(&self) -> Router {
         urls::router()
+    }
+
+    fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {
+        // #1113: wake-up rules ("task unblocked") live in taskflow-agents, which
+        // cannot depend on this crate. Tell it how to ask "is this task still
+        // blocked by an open decision?".
+        taskflow_agents::wakeups::register_decision_blocked_check(Box::new(|task| {
+            Box::pin(async move { service::has_open_decision(task).await })
+        }));
+        Ok(())
     }
 }

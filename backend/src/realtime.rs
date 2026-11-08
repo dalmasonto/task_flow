@@ -29,7 +29,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowTaskReview, TaskflowTerminalInput,
+    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowWakeRule, TaskflowTaskReview, TaskflowTerminalInput,
 };
 use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
@@ -71,6 +71,9 @@ const DECISIONS: &str = "decisions";
 const DECISION_OPTIONS: &str = "decision_options";
 const DECISION_TASKS: &str = "decision_tasks";
 const DECISION_COMMENTS: &str = "decision_comments";
+/// #1113: wake-up rules. Projected: a rule is project-wide state that REST
+/// serves to every member, and it carries channel IDS only, never content.
+const WAKE_RULES: &str = "wake_rules";
 const AGENTS: &str = "agents";
 const AGENT_SESSIONS: &str = "agent_sessions";
 const AGENT_CREDENTIALS: &str = "agent_credentials";
@@ -144,6 +147,12 @@ const DECISION_FIELDS: &[&str] = &[
 const DECISION_OPTION_FIELDS: &[&str] = &[
     "id", "project", "decision", "label", "detail", "sort_order",
     "recommended_by_user", "recommended_by_agent", "recommended_by_label", "created_at",
+];
+const WAKE_RULE_FIELDS: &[&str] = &[
+    "id", "project", "agent", "created_by_user", "created_by_agent", "created_by_label",
+    "trigger_kind", "target_task", "target_message", "watch_channel", "mentions_only", "fire_at",
+    "note", "deliver", "deliver_channel", "pane_channel", "status", "fired_at", "delivered_at",
+    "source_ref", "created_at", "updated_at",
 ];
 const DECISION_TASK_FIELDS: &[&str] = &["id", "project", "decision", "task", "created_at"];
 const DECISION_COMMENT_FIELDS: &[&str] = &[
@@ -296,6 +305,9 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowDecisionTask>(
             Expose::to_group_with(|ev| group_for(DECISION_TASKS, &ev.instance))
                 .fields(DECISION_TASK_FIELDS),
+        )
+        .expose::<TaskflowWakeRule>(
+            Expose::to_group_with(|ev| group_for(WAKE_RULES, &ev.instance)).fields(WAKE_RULE_FIELDS),
         )
         .expose::<TaskflowDecisionComment>(
             Expose::to_group_with(|ev| group_for(DECISION_COMMENTS, &ev.instance))
@@ -493,6 +505,7 @@ const ALL_SUFFIXES: &[&str] = &[
     DECISION_OPTIONS,
     DECISION_TASKS,
     DECISION_COMMENTS,
+    WAKE_RULES,
     AGENTS,
     AGENT_SESSIONS,
     AGENT_CREDENTIALS,

@@ -2357,7 +2357,7 @@ async fn live_session_ids(
 
 /// Count an agent's currently-live sessions. Used instead of a bare
 /// `status = connected` count so abandoned sessions can't pin an agent online.
-async fn live_session_count(
+pub(crate) async fn live_session_count(
     agent_id: i64,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<usize, StatusCode> {
@@ -3302,7 +3302,7 @@ pub struct ReviewInput {
 /// `(channel, user)` unique index does NOT dedupe agent rows — `user` is NULL
 /// for them, and SQL treats NULLs as distinct — so a second insert would leave
 /// the channel with two identical agent members.
-async fn ensure_agent_channel_row(
+pub(crate) async fn ensure_agent_channel_row(
     project_id: i64,
     channel_id: i64,
     agent_id: i64,
@@ -3345,7 +3345,7 @@ async fn ensure_agent_channel_row(
 /// where a second insert would be a hard 500 rather than a duplicate — and the
 /// callers here are non-transactional, so a race between two callers is exactly
 /// what the index would reject. Same shape as `ensure_agent_channel_row`.
-async fn ensure_user_channel_row(
+pub(crate) async fn ensure_user_channel_row(
     project_id: i64,
     channel_id: i64,
     user_id: i64,

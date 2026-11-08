@@ -714,6 +714,10 @@ pub async fn rule(
         activity(project, task, &actor, "decision_ruled", body).await;
     }
     notify_ruling(&ruled, &chosen.label, user, user_label, &unblocked).await;
+    // #1113: wake any agent waiting on one of these tasks.
+    for task in &unblocked {
+        taskflow_agents::wakeups::task_maybe_unblocked(*task).await;
+    }
     decision_json(&ruled, true).await
 }
 
@@ -930,4 +934,9 @@ pub async fn supersede(
         .await;
     }
     decision_json(&new, true).await
+}
+
+/// Is `task` linked to any OPEN decision? (The wake-up "task unblocked" check.)
+pub async fn has_open_decision(task: i64) -> bool {
+    !still_blocked_by(task, -1).await.is_empty()
 }
