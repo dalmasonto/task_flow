@@ -2,7 +2,6 @@
 /// as the kanban, grouped by status into collapsible sections. The design's
 /// "Working on" and "Lease" columns arrive with their backends (live tool,
 /// claim leases); until then they're left out rather than shown empty.
-import { Link } from "react-router-dom"
 import { ChevronRightIcon, PlusIcon, UserIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -22,6 +21,7 @@ import { filterIsActive } from "./board-logic"
 import { BoardToolbar, NewTaskButton } from "./BoardPage"
 import { PriorityMark } from "./TaskCard"
 import { useBoardData, useBoardFilter } from "./use-board-data"
+import { NewTaskLink, TaskLink } from "../components/task-link"
 
 const GRID = "grid grid-cols-[1rem_3.5rem_minmax(0,1fr)_1.5rem] items-center gap-3 md:grid-cols-[1rem_3.5rem_minmax(0,1fr)_9rem_5rem_6rem]"
 
@@ -58,7 +58,7 @@ export function BoardListPage() {
                     <StatusChip tone={COLUMN_TONE[col.id]} />
                     <span className="text-xs tabular-nums text-muted-foreground">{filterIsActive(filter) ? `${rows.length} of ${total}` : total}</span>
                   </CollapsibleTrigger>
-                  <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={`Add a task to ${COLUMN_LABEL[col.id]}`} render={<Link to={`/v3/tasks/new?status=${col.id}`} />} nativeButton={false}>
+                  <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={`Add a task to ${COLUMN_LABEL[col.id]}`} render={<NewTaskLink status={col.id} />} nativeButton={false}>
                     <PlusIcon />
                   </Button>
                 </div>
@@ -69,7 +69,7 @@ export function BoardListPage() {
                         const c = card(t)
                         return (
                           <li key={t.id} className="border-t border-border/60 first:border-t-0">
-                            <Link to={`/v3/tasks/${t.id}`} className={cn(GRID, "px-4 py-2.5 text-sm hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none lg:px-6")}>
+                            <TaskLink task={t.id} className={cn(GRID, "px-4 py-2.5 text-sm hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none lg:px-6")}>
                               <PriorityMark priority={c.priority} />
                               <span className="font-mono text-xs text-muted-foreground tabular-nums">#{c.id}</span>
                               <span className="min-w-0">
@@ -92,7 +92,7 @@ export function BoardListPage() {
                               </span>
                               <span className={cn("hidden text-xs md:block", c.due?.overdue ? "text-destructive" : "text-muted-foreground")}>{c.due?.label ?? "—"}</span>
                               <span className="hidden text-right text-xs text-muted-foreground tabular-nums md:block">{timeAgo(c.updatedAt, now) ?? "—"}</span>
-                            </Link>
+                            </TaskLink>
                           </li>
                         )
                       })}

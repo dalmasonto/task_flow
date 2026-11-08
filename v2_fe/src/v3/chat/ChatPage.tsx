@@ -34,6 +34,7 @@ import { byRecent, chatRow, filterChats, type ChatFilter, type ChatRow } from ".
 import { focusComposerIn } from "./focus"
 import { ThreadPanel } from "./ThreadPanel"
 import { channelIdOf } from "./thread-logic"
+import { useDetail } from "../lib/use-detail"
 
 const FILTERS: { id: ChatFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -150,6 +151,7 @@ function ChatList({ rows, activeId, onOpen, runtimeOf, onNew, candidates, onCrea
 
 function ChatWorkspace({ project }: { project: Project }) {
   const navigate = useNavigate()
+  const detail = useDetail()
   const { slug } = useParams()
   const [params, setParams] = useSearchParams()
   const isBelowLg = useIsBelowLg()
@@ -171,7 +173,7 @@ function ChatWorkspace({ project }: { project: Project }) {
     onRefreshWorkspace: reloadLive,
     selectedChatId: slug ? slugToChatId(slug) : null,
     onComposeTask: (body) => {
-      if (seedTaskFrom(body)) navigate("/v3/tasks/new")
+      if (seedTaskFrom(body)) detail.open({ kind: "new-task", status: "not_started" })
     },
   })
 

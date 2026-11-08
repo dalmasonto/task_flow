@@ -36,6 +36,8 @@ import {
 import { initialsFor } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
 
+import { DetailSheetHost } from "../components/DetailSheet"
+import { useDetail } from "../lib/use-detail"
 import { V3_LOGIN } from "../routes"
 import { useWorkspace, type V3Workspace } from "../workspace"
 import { CommandPalette } from "./CommandPalette"
@@ -130,7 +132,7 @@ function LiveStatus() {
 
 export function V3Shell({ title, actions, flush, children }: { title: string; actions?: ReactNode; flush?: boolean; children: ReactNode }) {
   const { pathname } = useLocation()
-  const navigate = useNavigate()
+  const detail = useDetail()
   const { counts } = useWorkspace()
   const active = activeNavId(pathname)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -161,7 +163,7 @@ export function V3Shell({ title, actions, flush, children }: { title: string; ac
               Search
               <Kbd className="ml-auto">Ctrl K</Kbd>
             </Button>
-            <Button size="icon-sm" aria-label="New task" title="New task" onClick={() => navigate("/v3/board?new=task")}>
+            <Button size="icon-sm" aria-label="New task" title="New task" onClick={() => detail.open({ kind: "new-task", status: "not_started" })}>
               <PlusIcon />
             </Button>
           </div>
@@ -223,6 +225,7 @@ export function V3Shell({ title, actions, flush, children }: { title: string; ac
         <main className={cn("min-h-0 flex-1 overflow-y-auto", !flush && "p-4 lg:p-6")}>{children}</main>
       </SidebarInset>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <DetailSheetHost />
     </SidebarProvider>
   )
 }

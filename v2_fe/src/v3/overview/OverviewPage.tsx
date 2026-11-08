@@ -32,6 +32,7 @@ import { V3Shell } from "../shell/V3Shell"
 import { fetchUsage, money, tokens, totalTokens } from "../usage/usage-api"
 import { useWorkspace } from "../workspace"
 import { checklist, lastDays, summaryLine } from "./overview-logic"
+import { NewTaskLink, TaskLink } from "../components/task-link"
 
 const DISMISS_KEY = "taskflow.v3.checklistDismissed"
 const BAR: Record<string, string> = { not_started: "bg-idle", in_progress: "bg-running", review: "bg-review", blocked: "bg-blocked", done: "bg-done" }
@@ -182,7 +183,7 @@ export function OverviewPage() {
     <V3Shell
       title="Overview"
       actions={
-        <Button size="sm" render={<Link to="/v3/tasks/new" />} nativeButton={false}>
+        <Button size="sm" render={<NewTaskLink />} nativeButton={false}>
           <PlusIcon />
           <span className="hidden sm:inline">New task</span>
         </Button>
@@ -393,9 +394,9 @@ export function OverviewPage() {
                           {r.task != null ? (
                             <>
                               {" "}
-                              <Link to={`/v3/tasks/${r.task}`} className="hover:underline">
+                              <TaskLink task={r.task} className="hover:underline">
                                 #{r.task}
-                              </Link>
+                              </TaskLink>
                             </>
                           ) : null}
                           <span className="block text-xs text-muted-foreground">{timeAgo(r.created_at, now) ?? ""}</span>

@@ -7,7 +7,7 @@
 /// Decisions aren't on App's stream, so the list reloads on focus, every 30
 /// seconds, and after an action.
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom"
 import { CircleCheckIcon, PlusIcon, ScaleIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -30,6 +30,7 @@ import { useWorkspace } from "../workspace"
 import { AskDecisionDialog } from "./AskDecisionDialog"
 import { commentOnDecision, getDecision, listDecisions, ruleDecision, type Decision, type DecisionStatus } from "./decisions-api"
 import { countByStatus, recommended, sortFor, waitingOnMe } from "./decisions-logic"
+import { TaskLink } from "../components/task-link"
 
 const TABS: { id: DecisionStatus; label: string }[] = [
   { id: "open", label: "Open" },
@@ -44,9 +45,9 @@ function TaskLinks({ ids }: { ids: number[] }) {
       {ids.slice(0, 3).map((t, i) => (
         <span key={t}>
           {i ? ", " : ""}
-          <Link to={`/v3/tasks/${t}`} className="underline-offset-4 hover:underline" onClick={(e) => e.stopPropagation()}>
+          <TaskLink task={t} className="underline-offset-4 hover:underline" onClick={(e) => e.stopPropagation()}>
             #{t}
-          </Link>
+          </TaskLink>
         </span>
       ))}
       {ids.length > 3 ? ` +${ids.length - 3}` : ""}

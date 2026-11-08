@@ -2,7 +2,6 @@
 /// no data (lease, live tool, decision) are simply absent until their backends
 /// exist, rather than shown empty.
 import type { DragEvent } from "react"
-import { Link } from "react-router-dom"
 import { CalendarIcon, ClockIcon, GitBranchIcon, PaperclipIcon, ShieldCheckIcon, TriangleAlertIcon, UserIcon } from "lucide-react"
 
 import type { Priority } from "@/lib/workspace-view"
@@ -10,6 +9,7 @@ import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
 import type { CardInfo } from "./board-logic"
+import { TaskLink } from "../components/task-link"
 
 const PRIORITY_LABEL: Record<Priority, string> = { critical: "Critical priority", high: "High priority", normal: "Normal priority", low: "Low priority" }
 
@@ -60,8 +60,8 @@ export function TaskCard({
   ].filter(Boolean)
 
   return (
-    <Link
-      to={`/v3/tasks/${card.id}`}
+    <TaskLink
+      task={card.id}
       draggable={!!onDragStart}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -98,6 +98,6 @@ export function TaskCard({
         </p>
       ) : null}
       {meta.length ? <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{meta}</div> : null}
-    </Link>
+    </TaskLink>
   )
 }

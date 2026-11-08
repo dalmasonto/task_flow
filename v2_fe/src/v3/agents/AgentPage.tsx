@@ -40,6 +40,7 @@ import { myMembership } from "../invites/invites-logic"
 import { useWorkspace } from "../workspace"
 import { agentRows } from "./agents-logic"
 import { useAgentSlices } from "./use-agent-slices"
+import { TaskLink } from "../components/task-link"
 
 export function AgentPage() {
   useAgentSlices()
@@ -134,12 +135,12 @@ export function AgentPage() {
           </div>
 
           {row.task ? (
-            <Link to={`/v3/tasks/${row.task.id}`} className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm hover:border-ring">
+            <TaskLink task={row.task.id} className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm hover:border-ring">
               <CircleDotIcon className="size-4 shrink-0 text-running" aria-hidden />
               <span className="truncate">
                 Working on <span className="font-mono text-xs text-muted-foreground">#{row.task.id}</span> {row.task.title}
               </span>
-            </Link>
+            </TaskLink>
           ) : null}
 
           <Section title="Terminal" action={term ? <Badge variant="outline">{term.connected ? "Connected" : "Not connected"}</Badge> : null}>

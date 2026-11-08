@@ -11,9 +11,11 @@ import { DesignSurfacePage } from "@/pages/design/DesignSurfacePage"
 import { V3Shell } from "../shell/V3Shell"
 import { seedTaskFrom } from "../tasks/task-seed"
 import { useWorkspace } from "../workspace"
+import { useDetail } from "../lib/use-detail"
 
 export function DesignPage() {
   const navigate = useNavigate()
+  const detail = useDetail()
   const { activeProject, live, currentUser, applyLiveUpdate, reloadLive } = useWorkspace()
   return (
     <V3Shell title="Design" flush>
@@ -30,7 +32,7 @@ export function DesignPage() {
               toast.error("Couldn't turn that into a task", { description: "It had no text to use as a title." })
               return
             }
-            navigate("/v3/tasks/new")
+            detail.open({ kind: "new-task", status: "not_started" })
           }}
           onOpenBoard={() => navigate("/v3/board")}
         />

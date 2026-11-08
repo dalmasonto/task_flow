@@ -26,6 +26,7 @@ import { V3Shell } from "../shell/V3Shell"
 import { useMayDrive } from "../lib/use-may-drive"
 import { useWorkspace } from "../workspace"
 import { fetchInbox, markInboxRead, type InboxItem, type InboxPage as Feed, type InboxTab } from "./inbox-api"
+import { TaskLink } from "../components/task-link"
 
 const TABS: { id: InboxTab; label: string }[] = [
   { id: "needs_you", label: "Needs you" },
@@ -137,7 +138,7 @@ export function InboxPage() {
           <Row key={`r${i.review_request}`} item={i} icon={<Glyph><ShieldCheckIcon /></Glyph>} title={`${i.requester_label} asked you to review #${i.task}`} meta={when}>
             {i.focus_markdown ? <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">{i.focus_markdown}</p> : null}
             <div className="mt-2 flex gap-2">
-              <Button size="sm" render={<Link to={`/v3/tasks/${i.task}`} />} nativeButton={false}>
+              <Button size="sm" render={<TaskLink task={i.task} />} nativeButton={false}>
                 Open #{i.task}
               </Button>
               {i.link ? (

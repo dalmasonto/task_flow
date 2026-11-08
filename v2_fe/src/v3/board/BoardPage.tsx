@@ -23,6 +23,7 @@ import { useWorkspace } from "../workspace"
 import { activeView, EMPTY_FILTER, filterIsActive, VIEWS, viewFilter, type AssigneeFilter, type BoardFilter } from "./board-logic"
 import { useBoardData, useBoardFilter } from "./use-board-data"
 import { TaskCard } from "./TaskCard"
+import { NewTaskLink } from "../components/task-link"
 
 const ASSIGNEE_LABEL: Record<AssigneeFilter, string> = {
   all: "Anyone",
@@ -231,7 +232,7 @@ export function NewTaskButton() {
         <TimerIcon />
         Sessions
       </Button>
-      <Button size="sm" render={<Link to="/v3/tasks/new" />} nativeButton={false}>
+      <Button size="sm" render={<NewTaskLink />} nativeButton={false}>
         <PlusIcon />
         <span className="hidden sm:inline">New task</span>
       </Button>
@@ -252,7 +253,7 @@ function BoardEmpty() {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="w-full gap-2">
-        <Button className="w-full" render={<Link to="/v3/tasks/new" />} nativeButton={false}>
+        <Button className="w-full" render={<NewTaskLink />} nativeButton={false}>
           <PlusIcon />
           Create your first task
         </Button>
@@ -363,7 +364,7 @@ export function BoardPage() {
                       size="icon-sm"
                       className="ml-auto"
                       aria-label={`Add a task to ${COLUMN_LABEL[col.id]}`}
-                      render={<Link to={`/v3/tasks/new?status=${col.id}`} />}
+                      render={<NewTaskLink status={col.id} />}
                       nativeButton={false}
                     >
                       <PlusIcon />

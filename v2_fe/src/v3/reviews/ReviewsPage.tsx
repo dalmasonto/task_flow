@@ -33,6 +33,7 @@ import { V3Shell } from "../shell/V3Shell"
 import { fetchTaskEvidence, type Evidence } from "../tasks/task-api"
 import { useWorkspace } from "../workspace"
 import { askedLine, recentVerdicts, reviewQueues, unnamedInReview, type ReviewTab } from "./reviews-logic"
+import { TaskLink } from "../components/task-link"
 
 async function fetchRequests(project: number): Promise<TaskflowReviewRequest[]> {
   const res = await taskflowApi.from("taskflow_review_request").filter({ project }).orderBy("-id").param("page_size", 100).list()
@@ -118,7 +119,7 @@ function Decide({ task, onDone }: { task: number; onDone: () => void }) {
             Add a note
           </Button>
         ) : null}
-        <Button size="sm" variant="ghost" className="ml-auto" render={<Link to={`/v3/tasks/${task}`} />} nativeButton={false}>
+        <Button size="sm" variant="ghost" className="ml-auto" render={<TaskLink task={task} />} nativeButton={false}>
           Open task
         </Button>
       </div>
@@ -182,9 +183,9 @@ export function ReviewsPage() {
                 </>
               )}
             </p>
-            <Link to={`/v3/tasks/${r.task}`} className="mt-0.5 block truncate font-medium hover:underline">
+            <TaskLink task={r.task} className="mt-0.5 block truncate font-medium hover:underline">
               <span className="font-mono text-xs text-muted-foreground">#{r.task}</span> {titleOf(r.task)}
-            </Link>
+            </TaskLink>
           </div>
           <StatusChip tone="review" label="In review" />
         </div>
@@ -208,7 +209,7 @@ export function ReviewsPage() {
           <Decide task={r.task} onDone={load} />
         ) : (
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" render={<Link to={`/v3/tasks/${r.task}`} />} nativeButton={false}>
+            <Button size="sm" variant="outline" render={<TaskLink task={r.task} />} nativeButton={false}>
               Open task
             </Button>
             <Button
@@ -294,9 +295,9 @@ export function ReviewsPage() {
                   <li key={r.id} className="flex items-center gap-3 px-4 py-3 text-sm">
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">{r.requester_label}</span> asked <span className="font-medium">{r.reviewer_label}</span> about{" "}
-                      <Link to={`/v3/tasks/${r.task}`} className="hover:underline">
+                      <TaskLink task={r.task} className="hover:underline">
                         #{r.task} {titleOf(r.task)}
-                      </Link>
+                      </TaskLink>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {r.status === "answered" ? "Answered" : "Cancelled"} {timeAgo(r.closed_at, now) ?? ""}
@@ -314,9 +315,9 @@ export function ReviewsPage() {
                 <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
                   {unnamed.map((t) => (
                     <li key={t.id} className="flex items-center gap-3 px-4 py-3 text-sm">
-                      <Link to={`/v3/tasks/${t.id}`} className="min-w-0 flex-1 truncate hover:underline">
+                      <TaskLink task={t.id} className="min-w-0 flex-1 truncate hover:underline">
                         <span className="font-mono text-xs text-muted-foreground">#{t.id}</span> {t.title}
-                      </Link>
+                      </TaskLink>
                       <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(t.updated_at, now) ?? ""}</span>
                     </li>
                   ))}
@@ -333,9 +334,9 @@ export function ReviewsPage() {
                       <ActorAvatar model={v.reviewer_kind === "agent" ? guessModel(v.reviewer_label) : null} name={v.reviewer_label} size="sm" />
                       <p className="min-w-0 flex-1 truncate text-sm">
                         <span className="font-medium">{v.reviewer_label}</span> {v.decision === "approved" ? "approved" : "requested changes on"}{" "}
-                        <Link to={`/v3/tasks/${v.task}`} className="hover:underline">
+                        <TaskLink task={v.task} className="hover:underline">
                           #{v.task} {titleOf(v.task)}
-                        </Link>
+                        </TaskLink>
                       </p>
                       <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(v.created_at, now) ?? ""}</span>
                     </li>

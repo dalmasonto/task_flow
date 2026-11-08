@@ -22,6 +22,7 @@ import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { agentRows, countByState, type AgentRow, type AgentState } from "./agents-logic"
 import { useAgentSlices } from "./use-agent-slices"
+import { TaskLink } from "../components/task-link"
 
 const TABS: { id: AgentState | "all"; label: string }[] = [
   { id: "all", label: "All" },
@@ -127,12 +128,12 @@ export function AgentsPage() {
                       </div>
                     ) : null}
                     {r.task ? (
-                      <Link to={`/v3/tasks/${r.task.id}`} className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted/40">
+                      <TaskLink task={r.task.id} className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted/40">
                         <CircleDotIcon className="size-3.5 shrink-0 text-running" aria-hidden />
                         <span className="truncate">
                           <span className="font-mono text-xs text-muted-foreground">#{r.task.id}</span> {r.task.title}
                         </span>
-                      </Link>
+                      </TaskLink>
                     ) : null}
                   </article>
                 )

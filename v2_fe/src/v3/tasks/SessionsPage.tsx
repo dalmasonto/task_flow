@@ -2,7 +2,6 @@
 /// or an agent. Active and paused first, with their controls; then the recent
 /// finished ones. The design's cost column waits for per-task usage rollups
 /// (#TSK1130) rather than showing a guess.
-import { Link } from "react-router-dom"
 import { MoreHorizontalIcon, PauseIcon, PlayIcon, SquareIcon, TimerIcon } from "lucide-react"
 
 import type { TaskflowTaskSession } from "@/api/client"
@@ -19,6 +18,7 @@ import { formatDuration, timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { sessionElapsed, splitSessions } from "./session-logic"
+import { TaskLink } from "../components/task-link"
 
 const STATE_LABEL: Record<TaskflowTaskSession["state"], string> = { running: "Working", paused: "Paused", stopped: "Finished", failed: "Failed" }
 
@@ -58,9 +58,9 @@ export function SessionsPage() {
                     <ActorAvatar model={modelFor(s)} name={s.actor_label} status={s.state === "running" ? "running" : "idle"} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{s.actor_label}</p>
-                      <Link to={`/v3/tasks/${s.task}`} className="block truncate text-sm text-muted-foreground underline-offset-2 hover:underline">
+                      <TaskLink task={s.task} className="block truncate text-sm text-muted-foreground underline-offset-2 hover:underline">
                         #{s.task} {titleFor(s.task) ?? ""}
-                      </Link>
+                      </TaskLink>
                       <p className="mt-2 flex items-center gap-2 text-xs">
                         <StatusChip tone={s.state === "running" ? "running" : "paused"} label={STATE_LABEL[s.state]} />
                         <span className="tabular-nums text-muted-foreground">{formatDuration(sessionElapsed(s, now))}</span>
@@ -145,9 +145,9 @@ export function SessionsPage() {
                         </span>
                       </TableCell>
                       <TableCell className="max-w-[16rem]">
-                        <Link to={`/v3/tasks/${s.task}`} className="block truncate underline-offset-2 hover:underline">
+                        <TaskLink task={s.task} className="block truncate underline-offset-2 hover:underline">
                           #{s.task} {titleFor(s.task) ?? ""}
-                        </Link>
+                        </TaskLink>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
                         <StatusChip tone={s.state === "failed" ? "failed" : "done"} label={STATE_LABEL[s.state]} />

@@ -1,7 +1,7 @@
 /// The ⌘K palette (design: command-palette.html): tasks, agents with their
 /// quick actions, actions, and every page. Reads App's live state only; the
 /// palette never fetches. "Ask an agent" arrives with the v3 chat (group 5).
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { MessageSquareIcon, MoonIcon, PencilIcon, PlusIcon, SunIcon, TerminalIcon } from "lucide-react"
 
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from "@/components/ui/command"
@@ -9,6 +9,7 @@ import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
+import { detailHref } from "../lib/detail-params"
 import { useWorkspace } from "../workspace"
 import { V3_NAV } from "./nav"
 import { paletteAgents, paletteTasks, taskSearchValue } from "./palette-logic"
@@ -24,6 +25,7 @@ const STATUS_DOT: Record<string, string> = {
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate()
+  const { pathname, search } = useLocation()
   const { projects, activeProject, projectTasks, live, chooseProject } = useWorkspace()
   const now = useLivenessNow()
   const agents = live ? paletteAgents(live.agents, live.agentSessions, now) : []
@@ -46,7 +48,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           {tasks.length > 0 ? (
             <CommandGroup heading={activeProject ? `Tasks in ${activeProject.name}` : "Tasks"}>
               {tasks.map((t) => (
-                <CommandItem key={t.id} value={taskSearchValue(t)} onSelect={() => go(`/v3/tasks/${t.id}`)} className="gap-2.5">
+                <CommandItem key={t.id} value={taskSearchValue(t)} onSelect={() => go(detailHref(pathname, search, { kind: "task", id: t.id }))} className="gap-2.5">
                   <span className={cn("size-2 shrink-0 rounded-full", STATUS_DOT[t.status] ?? "bg-muted-foreground/50")} aria-hidden />
                   <span className="min-w-0 flex-1 truncate">
                     <span className="font-mono text-xs text-muted-foreground">#{t.id}</span> {t.title}
@@ -88,7 +90,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           ) : null}
 
           <CommandGroup heading="Actions">
-            <CommandItem value="new task create" onSelect={() => go("/v3/board?new=task")}>
+            <CommandItem value="new task create" onSelect={() => go(detailHref(pathname, search, { kind: "new-task", status: "not_started" }))}>
               <PlusIcon />
               New task
             </CommandItem>

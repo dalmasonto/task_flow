@@ -26,6 +26,8 @@ import { guessModel } from "../components/actor-models"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { groupByDay, liveRowFits, matchesSearch, mergeActivity, verbOf, type ActorFilter } from "./activity-logic"
+import { TaskLink } from "../components/task-link"
+import { useDetail } from "../lib/use-detail"
 
 const ANY = "any"
 
@@ -46,6 +48,7 @@ function clock(at: string | null) {
 }
 
 export function ActivityPage() {
+  const detail = useDetail()
   const { live, projectTasks } = useWorkspace()
   const now = useLivenessNow()
   const project = live?.project.id ?? null
@@ -211,6 +214,8 @@ export function ActivityPage() {
                 const body = r.body_markdown?.trim()
                 return (
                   <li key={r.id} className="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+                    {/* The whole row opens the entry in the detail sheet (#5907 item 12); the task link sits above it. */}
+                    <Link to={detail.href({ kind: "activity", id: r.id })} className="absolute inset-0 rounded-lg focus-visible:outline-2 focus-visible:outline-ring" aria-label={`Open: ${r.actor_label || "Someone"} ${verb}`} />
                     <span className="absolute top-2 -left-8">
                       {r.actor_kind === "system" ? (
                         <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -225,9 +230,9 @@ export function ActivityPage() {
                       {r.task != null ? (
                         <>
                           {" "}
-                          <Link to={`/v3/tasks/${r.task}`} className="font-medium hover:underline">
+                          <TaskLink task={r.task} className="relative z-10 font-medium hover:underline">
                             #{r.task}
-                          </Link>
+                          </TaskLink>
                           {title ? <span className="text-muted-foreground"> {title}</span> : null}
                         </>
                       ) : null}

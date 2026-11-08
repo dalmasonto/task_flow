@@ -30,6 +30,7 @@ import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { fetchUsage, fetchUsageSettings, money, saveUsageSettings, tokens, totalTokens, type UsageSettings } from "./usage-api"
 import { RANGES, cacheHitRate, change, dailySeries, toCsv, toMicros, windows, type RangeId } from "./usage-logic"
+import { TaskLink } from "../components/task-link"
 
 const ALL = "all"
 
@@ -386,9 +387,9 @@ export function UsagePage() {
               <ul className="mt-3 space-y-3">
                 {tasks.slice(0, 6).map((g) => (
                   <li key={g.key} className="grid grid-cols-[minmax(0,1fr)_6rem_4.5rem] items-center gap-3">
-                    <Link to={`/v3/tasks/${g.key}`} className="truncate text-sm hover:underline">
+                    <TaskLink task={g.key} className="truncate text-sm hover:underline">
                       #{g.key} {taskTitle(g.key) ?? ""}
-                    </Link>
+                    </TaskLink>
                     <span className="h-1.5 overflow-hidden rounded-full bg-muted">
                       <span className="block h-full rounded-full bg-chart-1" style={{ width: `${(g.usage.cost_micros / topTask) * 100}%` }} />
                     </span>

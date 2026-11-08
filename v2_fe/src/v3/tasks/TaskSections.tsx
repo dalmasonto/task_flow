@@ -2,7 +2,6 @@
 /// plainly when it has none; sections whose backend isn't built yet (approval
 /// gate, handoff, code/CI, lease) are not drawn at all.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { Link } from "react-router-dom"
 import { CircleCheckIcon, CircleXIcon, FileTextIcon, GitPullRequestIcon, LinkIcon, PencilIcon, PlusIcon, StickyNoteIcon, Trash2Icon, UploadIcon } from "lucide-react"
 
 import type { TaskflowWorkspace } from "@/lib/taskflow-api"
@@ -27,6 +26,7 @@ import { guessModel } from "../components/actor-models"
 import { timeAgo } from "../lib/time"
 import { fetchTaskEvidence, type Evidence } from "./task-api"
 import { groupRelations, parseTaskNumber, RELATION_LABEL, relationToCreate, taskTimeline, type RelationGroup } from "./task-logic"
+import { TaskLink } from "../components/task-link"
 
 export function Section({ title, count, action, children, className }: { title: string; count?: number; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -255,9 +255,9 @@ export function RelationsSection({ task, live, projectId, titleOf }: { task: Tas
                 <dd className="space-y-1">
                   {groups[g].map((r) => (
                     <div key={r.relationId} className="group/rel flex items-center gap-2">
-                      <Link to={`/v3/tasks/${r.other}`} className="min-w-0 truncate underline-offset-2 hover:underline">
+                      <TaskLink task={r.other} className="min-w-0 truncate underline-offset-2 hover:underline">
                         <span className="font-mono text-xs text-muted-foreground">#{r.other}</span> {titleOf(r.other) ?? ""}
-                      </Link>
+                      </TaskLink>
                       <button
                         type="button"
                         className="ml-auto rounded p-0.5 text-muted-foreground opacity-0 group-hover/rel:opacity-100 hover:text-destructive focus-visible:opacity-100"
