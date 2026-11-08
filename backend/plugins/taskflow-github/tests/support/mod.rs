@@ -259,6 +259,27 @@ impl TestApp {
         TestResponse { inner: self.client.get(path).await }
     }
 
+    /// DELETE with a JSON body (#1135 disconnect).
+    pub async fn delete_body_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
+        self.set_auth(user_id);
+        self.client.set_default_header(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let res = self.client.send(http::Method::DELETE, path, axum::body::Body::from(body.to_string())).await;
+        TestResponse { inner: res }
+    }
+
+    /// The fake GitHub API, to script `current_login` and read revokes.
+    pub fn fake_api(&self) -> &FakeGithubApi {
+        &self.api
+    }
+
+    /// Give a user a real password (#1135: disconnect needs it).
+    pub async fn set_password(&self, user_id: i64, password: &str) {
+        let hash = umbral_auth::hash_password(password).expect("hash");
+        let mut v = serde_json::Map::new();
+        v.insert("password_hash".into(), serde_json::json!(hash));
+        AuthUser::objects().filter(umbral_auth::auth_user::ID.eq(user_id)).update_values(v).await.expect("set password");
+    }
+
     pub fn api_created_issues(&self) -> Vec<(String, String, taskflow_github::api::NewIssue)> {
         self.api.created_issues()
     }

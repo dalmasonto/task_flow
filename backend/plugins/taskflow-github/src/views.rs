@@ -551,8 +551,116 @@ pub async fn get_me(
     State(deps): State<GithubDeps>,
     RequireAuth(user_id): RequireAuth<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let connected = deps.tokens.token_for_user(user_id).await.is_some();
-    Ok(Json(json!({ "connected": connected })))
+    // #1135: who you're connected as, since when, and which projects use your
+    // link as their issue-tracking key. `login` is cached per user for
+    // LOGIN_TTL and is `null` (never an error) when GitHub can't answer.
+    let Some(info) = deps.tokens.account_for_user(user_id).await else {
+        forget_login(user_id);
+        return Ok(Json(json!({ "connected": false, "login": null, "connected_at": null, "scopes": null, "projects_tracking": [] })));
+    };
+    let login = match cached_login(user_id) {
+        Some(l) => Some(l),
+        None => match deps.tokens.token_for_user(user_id).await {
+            Some(token) => match deps.api.current_login(&token).await {
+                Ok(l) => {
+                    remember_login(user_id, &l);
+                    Some(l)
+                }
+                // Never log the token or GitHub's body.
+                Err(_) => None,
+            },
+            None => None,
+        },
+    };
+    Ok(Json(json!({
+        "connected": true,
+        "login": login,
+        "connected_at": info.connected_at,
+        "scopes": info.scopes,
+        "projects_tracking": tracking_projects(user_id).await?,
+    })))
+}
+
+const LOGIN_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+fn login_cache() -> &'static std::sync::Mutex<std::collections::HashMap<i64, (std::time::Instant, String)>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<i64, (std::time::Instant, String)>>> = std::sync::OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+fn cached_login(user: i64) -> Option<String> {
+    let mut c = login_cache().lock().unwrap_or_else(|p| p.into_inner());
+    c.retain(|_, (at, _)| at.elapsed() < LOGIN_TTL);
+    c.get(&user).map(|(_, l)| l.clone())
+}
+
+fn remember_login(user: i64, login: &str) {
+    login_cache().lock().unwrap_or_else(|p| p.into_inner()).insert(user, (std::time::Instant::now(), login.to_string()));
+}
+
+fn forget_login(user: i64) {
+    login_cache().lock().unwrap_or_else(|p| p.into_inner()).remove(&user);
+}
+
+/// Projects whose GitHub issue sync rides on this user's link.
+async fn tracking_projects(user: i64) -> Result<Vec<Value>, ApiError> {
+    Ok(TaskflowProject::objects()
+        .filter(taskflow_project::GITHUB_LINKED_BY.eq(user))
+        .fetch()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "internal"))?
+        .into_iter()
+        .map(|p| json!({ "id": p.id, "name": p.name }))
+        .collect())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DisconnectBody {
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+/// `DELETE /api/taskflow/github/me` `{password}` — #1135: unlink GitHub.
+///
+/// Needs the account password (403 `password_required`): an account made by
+/// GitHub sign-in has a random password, so without this check someone could
+/// disconnect the only way they can sign in. The token is revoked at GitHub
+/// (best effort) after the link row is gone; projects tracking issues with
+/// this link are listed so the UI can say they need a reconnect.
+pub async fn delete_me(
+    State(deps): State<GithubDeps>,
+    RequireAuth(user_id): RequireAuth<i64>,
+    Json(body): Json<DisconnectBody>,
+) -> Result<Json<Value>, ApiError> {
+    let me = umbral_auth::AuthUser::objects()
+        .filter(umbral_auth::auth_user::ID.eq(user_id))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "internal"))?
+        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "unauthorized"))?;
+    let ok = match body.password.as_deref() {
+        Some(pw) if !pw.is_empty() => umbral_auth::verify_password_async(pw, &me.password_hash).await.unwrap_or(false),
+        _ => false,
+    };
+    if !ok {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "password_required",
+                "detail": "Enter your TaskFlow password. If you only ever signed in with GitHub, set a password first (Forgot password), then disconnect.",
+            })),
+        ));
+    }
+    let projects = tracking_projects(user_id).await?;
+    let token = deps.tokens.disconnect(user_id).await;
+    forget_login(user_id);
+    if let Some(t) = token.as_deref().filter(|t| !t.is_empty()) {
+        if deps.api.revoke_token(t).await.is_err() {
+            tracing::warn!(user = user_id, "github token revoke failed; the link is removed locally");
+        }
+    }
+    Ok(Json(json!({ "disconnected": token.is_some(), "projects_tracking": projects })))
 }
 
 // ---------------------------------------------------------------------------

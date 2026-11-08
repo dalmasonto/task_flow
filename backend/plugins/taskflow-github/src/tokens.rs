@@ -11,10 +11,28 @@ use async_trait::async_trait;
 
 /// Where a revealed GitHub token comes from. The real impl (Task 8) reads the
 /// user's `SocialAccount`; tests use `FakeTokenSource`.
+/// #1135: what the account page shows about a link, without the token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountInfo {
+    pub connected_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub scopes: String,
+}
+
 #[async_trait]
 pub trait GithubTokenSource: Send + Sync {
     /// The revealed GitHub access token for this user, or `None` if unlinked.
     async fn token_for_user(&self, user_id: i64) -> Option<String>;
+
+    /// #1135: when the link was made and its scopes; `None` if unlinked.
+    async fn account_for_user(&self, user_id: i64) -> Option<AccountInfo> {
+        self.token_for_user(user_id).await.map(|_| AccountInfo { connected_at: None, scopes: String::new() })
+    }
+
+    /// #1135: remove the link; answers the token it held (to revoke at
+    /// GitHub), or `None` if there was no link.
+    async fn disconnect(&self, _user_id: i64) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -67,14 +85,14 @@ pub async fn resolve_actor_token(
 
 /// Test double: a fixed map of user_id -> token.
 pub struct FakeTokenSource {
-    tokens: HashMap<i64, String>,
+    tokens: std::sync::Mutex<HashMap<i64, String>>,
 }
 impl FakeTokenSource {
     pub fn new() -> Self {
-        Self { tokens: HashMap::new() }
+        Self { tokens: std::sync::Mutex::new(HashMap::new()) }
     }
-    pub fn with(mut self, user_id: i64, token: &str) -> Self {
-        self.tokens.insert(user_id, token.to_string());
+    pub fn with(self, user_id: i64, token: &str) -> Self {
+        self.tokens.lock().unwrap().insert(user_id, token.to_string());
         self
     }
 }
@@ -86,6 +104,12 @@ impl Default for FakeTokenSource {
 #[async_trait]
 impl GithubTokenSource for FakeTokenSource {
     async fn token_for_user(&self, user_id: i64) -> Option<String> {
-        self.tokens.get(&user_id).cloned()
+        self.tokens.lock().unwrap().get(&user_id).cloned()
+    }
+    async fn account_for_user(&self, user_id: i64) -> Option<AccountInfo> {
+        self.tokens.lock().unwrap().contains_key(&user_id).then(|| AccountInfo { connected_at: None, scopes: "repo".into() })
+    }
+    async fn disconnect(&self, user_id: i64) -> Option<String> {
+        self.tokens.lock().unwrap().remove(&user_id)
     }
 }

@@ -49,7 +49,7 @@ pub fn router(deps: GithubDeps) -> Router {
             post(views::link_project),
         )
         // User-level "am I connected?" for the account/settings page.
-        .route("/api/taskflow/github/me", get(views::get_me))
+        .route("/api/taskflow/github/me", get(views::get_me).delete(views::delete_me))
         // Owner/admin: toggle per-project auto-mirror of comments to the issue.
         .route(
             "/api/taskflow/github/projects/{project}/auto-mirror",

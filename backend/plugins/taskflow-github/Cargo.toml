@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# #1135: a failed token revoke is logged (never the token).
+tracing = "0.1"
 umbral = "0.0.13"
 umbral-auth = "0.0.13"
 taskflow-projects = { path = "../taskflow-projects" }
