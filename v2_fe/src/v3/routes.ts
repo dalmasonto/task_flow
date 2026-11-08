@@ -37,7 +37,6 @@ const GATE_MAP: [prefix: string, v2: string | string[]][] = [
   // (what each agent is working on); chat/terminal come from the mount flag.
   ["/v3/agents", ["/dashboard/api", "/dashboard/board"]],
   ["/v3/design", "/dashboard/design"],
-  ["/v3/activity", "/dashboard/activity"],
   ["/v3/api-keys", "/dashboard/api"],
   ["/v3/project", "/dashboard/api"],
   // Onboarding watches agents connect (presence lives with the API page's

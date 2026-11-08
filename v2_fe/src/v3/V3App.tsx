@@ -72,6 +72,7 @@ const AgentNewPage = lazyNamed(() => import("./agents/AgentNewPage"), "AgentNewP
 const InboxPage = lazyNamed(() => import("./inbox/InboxPage"), "InboxPage")
 const WakeupsPage = lazyNamed(() => import("./agents/WakeupsPage"), "WakeupsPage")
 const AgentLaunchPage = lazyNamed(() => import("./agents/AgentLaunchPage"), "AgentLaunchPage")
+const ActivityPage = lazyNamed(() => import("./activity/ActivityPage"), "ActivityPage")
 
 export function V3App() {
   useV3Document()
@@ -108,6 +109,7 @@ export function V3App() {
         <Route path="/v3/agents/wakeups" element={<WakeupsPage />} />
         <Route path="/v3/agents/launch" element={<AgentLaunchPage />} />
         <Route path="/v3/agents/:id" element={<AgentPage />} />
+        <Route path="/v3/activity" element={<ActivityPage />} />
           <Route path="*" element={<NotPortedYet />} />
         </Routes>
       </Suspense>
