@@ -65,6 +65,7 @@ async fn seed_task(project: i64) -> i64 {
             github_repo: None,
             created_at: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .unwrap()
