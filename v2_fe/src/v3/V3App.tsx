@@ -65,6 +65,7 @@ const BoardListPage = lazyNamed(() => import("./board/BoardListPage"), "BoardLis
 const TaskPage = lazyNamed(() => import("./tasks/TaskPage"), "TaskPage")
 const TaskNewPage = lazyNamed(() => import("./tasks/TaskNewPage"), "TaskNewPage")
 const SessionsPage = lazyNamed(() => import("./tasks/SessionsPage"), "SessionsPage")
+const ChatPage = lazyNamed(() => import("./chat/ChatPage"), "ChatPage")
 
 export function V3App() {
   useV3Document()
@@ -92,6 +93,9 @@ export function V3App() {
         <Route path="/v3/tasks/new" element={<TaskNewPage />} />
         <Route path="/v3/tasks/:id" element={<TaskPage />} />
         <Route path="/v3/sessions" element={<SessionsPage />} />
+        {/* Agents & chat (group 5). */}
+        <Route path="/v3/chat" element={<ChatPage />} />
+        <Route path="/v3/chat/:slug" element={<ChatPage />} />
           <Route path="*" element={<NotPortedYet />} />
         </Routes>
       </Suspense>
