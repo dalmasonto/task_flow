@@ -1704,8 +1704,10 @@ async function readErrorDetail(response: Response, fallback: string): Promise<st
   const contentType = response.headers.get("content-type") ?? ""
   if (!contentType.includes("application/json")) return fallback
   try {
-    const payload = (await response.json()) as { detail?: string; error?: string }
-    return payload.detail ?? payload.error ?? fallback
+    // `reason` is the sentence the newer handlers send beside a machine `error`
+    // code ({error, field, reason}); prefer it over the bare code.
+    const payload = (await response.json()) as { detail?: string; error?: string; reason?: string }
+    return payload.detail ?? payload.reason ?? payload.error ?? fallback
   } catch {
     return fallback
   }
@@ -1868,6 +1870,8 @@ export type UpdateUserSettingsInput = {
   theme?: TaskflowUserSettingsTheme
   email_notifications?: boolean
   default_project?: number | null
+  /// #1134: an IANA zone, or null to clear. The server validates it.
+  timezone?: string | null
 }
 
 export async function updateUserSettings(input: UpdateUserSettingsInput): Promise<TaskflowUserSettings> {

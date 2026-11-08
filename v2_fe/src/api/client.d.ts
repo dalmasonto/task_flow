@@ -836,6 +836,7 @@ export interface TaskflowUserSettings {
   email_notifications: boolean;
   /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
   default_project: number | null;
+  timezone: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

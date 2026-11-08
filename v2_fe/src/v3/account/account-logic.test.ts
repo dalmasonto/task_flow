@@ -31,3 +31,24 @@ describe("passwordError", () => {
     expect(passwordError("old", "longenough", "longenough")).toBeNull()
   })
 })
+
+describe("describeAgent", () => {
+  it("names common browsers and the CLI", async () => {
+    const { describeAgent } = await import("./account-logic")
+    expect(describeAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36")).toBe("Chrome on Linux")
+    expect(describeAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Version/17.0 Mobile Safari/604.1")).toBe("Safari on iOS")
+    expect(describeAgent("Mozilla/5.0 (Windows NT 10.0) Gecko/20100101 Firefox/131.0")).toBe("Firefox on Windows")
+    expect(describeAgent("node")).toBe("TaskFlow CLI or script")
+    expect(describeAgent(null)).toBeNull()
+  })
+})
+
+describe("profilePatch", () => {
+  it("sends only what changed, normalised", async () => {
+    const { profilePatch } = await import("./account-logic")
+    const was = { full_name: null, username: "dalmas", email: "d@x.com" }
+    expect(profilePatch(was, { full_name: "", username: "dalmas", email: "d@x.com" })).toEqual({})
+    expect(profilePatch(was, { full_name: " Dalmas O ", username: "Dalmas", email: "D@X.com" })).toEqual({ full_name: "Dalmas O" })
+    expect(profilePatch(was, { full_name: "", username: "newname", email: "new@x.com" })).toEqual({ username: "newname", email: "new@x.com" })
+  })
+})
