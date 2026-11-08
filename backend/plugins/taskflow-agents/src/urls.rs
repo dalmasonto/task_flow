@@ -308,6 +308,17 @@ pub fn router() -> Router {
             "/api/taskflow/agents/review-requests",
             get(crate::review_requests::agent_list),
         )
+        // #1117: evidence for review — add, list, withdraw (author only).
+        .route(
+            "/api/taskflow/tasks/{task}/evidence",
+            post(crate::evidence::add_evidence).get(crate::evidence::list_evidence),
+        )
+        .route(
+            "/api/taskflow/tasks/{task}/agent/evidence",
+            post(crate::evidence::agent_add_evidence).get(crate::evidence::agent_list_evidence),
+        )
+        .route("/api/taskflow/evidence/{id}", delete(crate::evidence::delete_evidence))
+        .route("/api/taskflow/agents/evidence/{id}", delete(crate::evidence::agent_delete_evidence))
         // Agent activity ingest (agent-authed via `RequireAgent`). An agent posts
         // its real actions — single or batch — as `TaskflowTaskActivity` stamped
         // with the agent; a task link is kept only if the task is in the agent's

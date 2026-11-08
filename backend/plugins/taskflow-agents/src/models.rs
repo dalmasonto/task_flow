@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use taskflow_projects::models::TaskflowProject;
-use taskflow_tasks::models::TaskflowTask;
+use taskflow_tasks::models::{TaskflowTask, TaskflowTaskAttachment};
 use umbral::orm::{Choices, FileField, ForeignKey};
 use umbral_auth::AuthUser;
 
@@ -915,6 +915,58 @@ pub struct TaskflowReviewRequest {
     #[umbral(on_delete = "set_null")]
     pub review: Option<ForeignKey<TaskflowTaskReview>>,
     pub closed_at: Option<DateTime<Utc>>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #1117: what kind of proof a piece of evidence is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowEvidenceKind {
+    TestRun,
+    CiRun,
+    PullRequest,
+    Attachment,
+    Note,
+}
+
+/// #1117 (v3 group 6): evidence for review on a task, such as "cargo test, 218
+/// passed", a CI run, a PR, or an attached capture. **Self-reported** by whoever
+/// adds it. Written ONLY by `evidence.rs`; the author is derived from the auth
+/// gate. Auto-REST serves it read-only and project-scoped.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["task", "id"]])]
+pub struct TaskflowTaskEvidence {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub task: ForeignKey<TaskflowTask>,
+    #[umbral(choices, default = "note")]
+    pub kind: TaskflowEvidenceKind,
+    #[umbral(string, max_length = 200)]
+    pub label: String,
+    #[umbral(string, max_length = 500)]
+    pub url: Option<String>,
+    pub passed: Option<bool>,
+    pub tests_passed: Option<i64>,
+    pub tests_failed: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub files_changed: Option<i64>,
+    pub additions: Option<i64>,
+    pub deletions: Option<i64>,
+    /// Must be an attachment on the SAME task (checked at the endpoint).
+    #[umbral(on_delete = "set_null")]
+    pub attachment: Option<ForeignKey<TaskflowTaskAttachment>>,
+    #[umbral(choices, default = "user")]
+    pub author_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub author_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub author_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub author_label: String,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

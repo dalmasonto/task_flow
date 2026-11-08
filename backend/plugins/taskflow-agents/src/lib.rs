@@ -27,6 +27,7 @@ pub mod wakeups;
 pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.
 pub mod posting;
+pub mod evidence;
 pub mod questions;
 pub mod review_requests;
 // #605: credential scopes — the allowlist and the canonical stored form.
@@ -67,6 +68,7 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentTerminalFrame>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskReview>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowReviewRequest>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowTaskEvidence>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentPrompt>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTerminalInput>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowRealtimeTicket>(),

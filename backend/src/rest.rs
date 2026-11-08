@@ -92,6 +92,9 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // and answered by the review endpoints, which derive both parties
     // server-side. A client write could forge a requester or an answer.
     "taskflow_review_request",
+    // #1117: evidence is written ONLY by the evidence endpoints, which derive
+    // the author and check an attachment is on the same task.
+    "taskflow_task_evidence",
     // Prompts are written ONLY by the trusted agent endpoints (the hook reports
     // one, the agent clears it) and answered through
     // `POST /api/taskflow/prompts/{prompt}/answer`, which records who answered.
