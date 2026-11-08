@@ -6,7 +6,7 @@
 /// here opens a stream. A reply's audience is computed by the server: the
 /// root's author, earlier repliers and anyone mentioned by chip.
 import { useEffect, useState, type FormEvent } from "react"
-import { SendIcon, XIcon } from "lucide-react"
+import { BellIcon, BellOffIcon, SendIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import type { AuthUser } from "@/lib/auth-api"
@@ -22,6 +22,7 @@ import { mapStoredAttachment } from "@/lib/live-mappers"
 import { sendTaskflowAgentMessage } from "@/lib/taskflow-api"
 import { subscribeThreadEvents } from "@/lib/thread-bus"
 import { fetchThread, type Thread, type ThreadMessage } from "@/lib/threads-api"
+import { markThreadRead, setThreadFollowed } from "@/lib/chat-summary-api"
 
 import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
@@ -50,7 +51,16 @@ function Row({ m, me, now }: { m: ThreadMessage; me: number | null; now: number 
   )
 }
 
-export function ThreadPanel({ channel, root, currentUser, onClose }: { channel: number; root: number; currentUser: AuthUser | null; onClose: () => void }) {
+export function ThreadPanel({ channel, root, currentUser, onClose, following = null, onFollowChanged }: {
+  channel: number
+  root: number
+  currentUser: AuthUser | null
+  onClose: () => void
+  /// #5983: whether I follow this thread; null on a server without follows
+  /// (no Follow button, no read marks).
+  following?: boolean | null
+  onFollowChanged?: () => void
+}) {
   const now = useLivenessNow()
   const key = `${channel}:${root}`
   const [loaded, setLoaded] = useState<{ key: string; thread: Thread | null; error: string | null } | null>(null)
@@ -62,6 +72,37 @@ export function ThreadPanel({ channel, root, currentUser, onClose }: { channel: 
   const [rootDeleted, setRootDeleted] = useState(false)
   const thread = loaded?.key === key ? loaded.thread : null
   const error = loaded?.key === key ? loaded.error : null
+  // The toggle answers at once; the list's refetch catches up behind it.
+  const [followOverride, setFollowOverride] = useState<boolean | null>(null)
+  const isFollowing = following == null ? null : (followOverride ?? following)
+  const [followBusy, setFollowBusy] = useState(false)
+  const lastReply = thread?.replies.reduce((max, r) => Math.max(max, r.id), 0) ?? 0
+
+  // Reading a followed thread clears its "new replies". Only when already
+  // following: the server's read mark also creates a follow, and opening a
+  // thread must not quietly follow it.
+  useEffect(() => {
+    if (!isFollowing || lastReply <= 0) return
+    void markThreadRead(channel, root, lastReply).then(() => onFollowChanged?.())
+    // onFollowChanged is a stable reload callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel, root, lastReply, isFollowing])
+
+  const toggleFollow = async () => {
+    if (isFollowing == null || followBusy) return
+    const next = !isFollowing
+    setFollowBusy(true)
+    setFollowOverride(next)
+    try {
+      setFollowOverride(await setThreadFollowed(channel, root, next))
+      onFollowChanged?.()
+    } catch (err) {
+      setFollowOverride(!next)
+      toast.error(err instanceof Error ? err.message : "Couldn't change following.")
+    } finally {
+      setFollowBusy(false)
+    }
+  }
 
   useEffect(() => {
     const ctl = new AbortController()
@@ -109,7 +150,21 @@ export function ThreadPanel({ channel, root, currentUser, onClose }: { channel: 
             {thread.replies.length} {thread.replies.length === 1 ? "reply" : "replies"}
           </span>
         ) : null}
-        <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label="Close thread" onClick={onClose}>
+        {isFollowing != null ? (
+          <Button
+            variant={isFollowing ? "secondary" : "outline"}
+            size="sm"
+            className="ml-auto"
+            aria-pressed={isFollowing}
+            disabled={followBusy}
+            onClick={() => void toggleFollow()}
+            title={isFollowing ? "You get its new replies in Threads. Click to stop." : "Follow to see its new replies in Threads."}
+          >
+            {isFollowing ? <BellIcon /> : <BellOffIcon />}
+            {isFollowing ? "Following" : "Follow"}
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="icon-sm" className={isFollowing == null ? "ml-auto" : undefined} aria-label="Close thread" onClick={onClose}>
           <XIcon />
         </Button>
       </div>

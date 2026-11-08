@@ -33,7 +33,9 @@ import { V3Shell } from "../shell/V3Shell"
 import { seedTaskFrom } from "../tasks/task-seed"
 import { useMayDrive } from "../lib/use-may-drive"
 import { useWorkspace } from "../workspace"
-import { byRecent, chatRow, filterChats, type ChatFilter, type ChatRow } from "./chat-logic"
+import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions, type ChatFilter, type ChatRow } from "./chat-logic"
+import { useChatSummary } from "./use-chat-summary"
+import type { FollowedThread } from "@/lib/chat-summary-api"
 import { focusComposerIn } from "./focus"
 import { ThreadPanel } from "./ThreadPanel"
 import { channelIdOf } from "./thread-logic"
@@ -47,11 +49,43 @@ import { statusOf } from "../lib/task-status"
 
 const PANEL_KEY = "v3.chat.details"
 
-const FILTERS: { id: ChatFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "unread", label: "Unread" },
-  { id: "agents", label: "Agents" },
-]
+/// chat.html's tabs. Mentions and Threads need the #5983 endpoints and are
+/// left out on a server that predates them.
+function filtersFor(hasMentions: boolean, hasThreads: boolean): { id: ChatFilter; label: string }[] {
+  return [
+    { id: "all", label: "All" },
+    { id: "unread", label: "Unread" },
+    ...(hasMentions ? [{ id: "mentions" as const, label: "Mentions" }] : []),
+    ...(hasThreads ? [{ id: "threads" as const, label: "Threads" }] : []),
+    { id: "agents", label: "Agents" },
+  ]
+}
+
+function ThreadRow({ t, room, now, onOpen }: { t: FollowedThread; room: string | null; now: number; onOpen: () => void }) {
+  return (
+    <li>
+      <button type="button" onClick={onOpen} className="flex w-full min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring">
+        <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground" aria-hidden>
+          <MessagesSquareIcon className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className={cn("min-w-0 flex-1 truncate text-sm", t.new_replies ? "font-semibold" : "font-medium")}>{t.excerpt || "Thread"}</span>
+            {t.last_reply_at ? <time className="shrink-0 text-xs text-muted-foreground">{timeAgo(t.last_reply_at, now)}</time> : null}
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{followLine(t, room)}</span>
+            {t.new_replies ? (
+              <span className="shrink-0 rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums text-foreground" aria-label={`${t.new_replies} new ${t.new_replies === 1 ? "reply" : "replies"}`}>
+                {t.new_replies > 99 ? "99+" : t.new_replies}
+              </span>
+            ) : null}
+          </span>
+        </span>
+      </button>
+    </li>
+  )
+}
 
 function RowIcon({ row, agentRuntime }: { row: ChatRow; agentRuntime?: string | null }) {
   if (row.kind === "agent") return <ActorAvatar model={guessModel(agentRuntime) ?? guessModel(row.title)} name={row.title} status={row.online ? "running" : "offline"} size="md" />
@@ -64,8 +98,14 @@ function RowIcon({ row, agentRuntime }: { row: ChatRow; agentRuntime?: string | 
   )
 }
 
-function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidates, onCreate }: {
+function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidates, onCreate, hasMentions, following, roomTitle, onOpenThread }: {
   rows: ChatRow[]
+  /// The server's mention counts are in (#5983): show the Mentions tab.
+  hasMentions: boolean
+  /// Threads I follow; null on a server without them (no Threads tab).
+  following: FollowedThread[] | null
+  roomTitle: (channel: number) => string | null
+  onOpenThread: (channel: number, root: number) => void
   /// Archived rooms' chat ids: listed last, folded away (#5951).
   archived: Set<string>
   activeId: string | null
@@ -79,15 +119,25 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
   const [filter, setFilter] = useState<ChatFilter>("all")
   const [query, setQuery] = useState("")
   const [newOpen, setNewOpen] = useState(onNew)
-  const all = filterChats(rows, filter, query)
+  const filters = filtersFor(hasMentions, following != null)
+  // A tab that went away (older server) falls back to All.
+  const active: ChatFilter = filters.some((f) => f.id === filter) ? filter : "all"
+  const all = active === "threads" ? [] : filterChats(rows, active, query)
   const shown = all.filter((r) => !archived.has(r.id))
   const archivedRows = all.filter((r) => archived.has(r.id))
   const [showArchived, setShowArchived] = useState(false)
   const rooms = shown.filter((r) => r.kind === "room")
   const dms = shown.filter((r) => r.kind !== "room").sort(byRecent)
   const unread = rows.filter((r) => r.unread > 0).length
+  const mentioned = rows.filter((r) => r.mentions > 0).length
+  const q = query.trim().toLowerCase()
+  const threads = (following ?? []).filter((t) => !q || t.excerpt.toLowerCase().includes(q))
+  const freshThreads = threads.filter((t) => t.new_replies > 0)
+  const threadItem = (t: FollowedThread) => <ThreadRow key={t.root} t={t} room={roomTitle(t.channel)} now={now} onOpen={() => onOpenThread(t.channel, t.root)} />
 
-  const item = (r: ChatRow) => (
+  const item = (r: ChatRow) => {
+    const badge = rowBadge(r)
+    return (
     <li key={r.id}>
       <button
         type="button"
@@ -106,16 +156,17 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
           </span>
           <span className="flex items-center gap-2">
             <span className={cn("min-w-0 flex-1 truncate text-xs", r.unread ? "text-foreground" : "text-muted-foreground")}>{r.preview}</span>
-            {r.unread ? (
-              <span className="shrink-0 rounded-full bg-primary px-1.5 text-xs font-semibold tabular-nums text-primary-foreground" aria-label={`${r.unread} unread`}>
-                {r.unread > 99 ? "99+" : r.unread}
+            {badge ? (
+              <span className={cn("shrink-0 rounded-full px-1.5 text-xs font-semibold tabular-nums", badge.mention ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")} aria-label={badge.label}>
+                {badge.text}
               </span>
             ) : null}
           </span>
         </span>
       </button>
     </li>
-  )
+    )
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -131,26 +182,44 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
         </div>
         {newOpen ? <NewConversationPanel candidates={candidates} onCreate={onCreate} onClose={() => setNewOpen(false)} /> : null}
         <div role="tablist" aria-label="Filter conversations" className="flex gap-1">
-          {FILTERS.map((f) => (
+          {filters.map((f) => (
             <button
               key={f.id}
               type="button"
               role="tab"
-              aria-selected={filter === f.id}
+              aria-selected={active === f.id}
               onClick={() => setFilter(f.id)}
-              className={cn("inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs", filter === f.id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:text-foreground")}
+              className={cn("inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs", active === f.id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:text-foreground")}
             >
               {f.label}
               {f.id === "unread" && unread ? <span className="tabular-nums">{unread}</span> : null}
+              {f.id === "mentions" && mentioned ? <span className="tabular-nums">{mentioned}</span> : null}
+              {f.id === "threads" && freshThreads.length ? <span className="tabular-nums">{freshThreads.length}</span> : null}
             </button>
           ))}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {active === "threads" ? (
+          threads.length ? (
+            <>
+              <p className="px-2.5 pt-1 pb-1.5 text-xs font-medium text-muted-foreground">Threads you follow</p>
+              <ul className="space-y-0.5">{threads.map(threadItem)}</ul>
+            </>
+          ) : (
+            <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">{q ? "Nothing matches." : "You aren't following any threads. Reply in one, or open it and choose Follow."}</p>
+          )
+        ) : null}
         {rooms.length ? (
           <>
             <p className="px-2.5 pt-1 pb-1.5 text-xs font-medium text-muted-foreground">Rooms</p>
             <ul className="space-y-0.5">{rooms.map(item)}</ul>
+          </>
+        ) : null}
+        {active === "all" && freshThreads.length ? (
+          <>
+            <p className="px-2.5 pt-3 pb-1.5 text-xs font-medium text-muted-foreground">Threads you follow</p>
+            <ul className="space-y-0.5">{freshThreads.map(threadItem)}</ul>
           </>
         ) : null}
         {dms.length ? (
@@ -168,7 +237,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
             {showArchived ? <ul className="space-y-0.5 opacity-80">{archivedRows.map(item)}</ul> : null}
           </>
         ) : null}
-        {!rooms.length && !dms.length && !archivedRows.length ? <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">{query || filter !== "all" ? "Nothing matches." : "No conversations yet."}</p> : null}
+        {active !== "threads" && !rooms.length && !dms.length && !archivedRows.length ? <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">{query || active !== "all" ? "Nothing matches." : "No conversations yet."}</p> : null}
       </div>
     </div>
   )
@@ -203,7 +272,17 @@ function ChatWorkspace({ project }: { project: Project }) {
     },
   })
 
-  const rows = useMemo(() => [...channelChats, ...directChats].map((c) => chatRow(c)), [channelChats, directChats])
+  const baseRows = useMemo(() => [...channelChats, ...directChats].map((c) => chatRow(c)), [channelChats, directChats])
+  // #5983: mention counts and followed threads, refetched when any unread
+  // count moves (there's no realtime group for them, by design).
+  const unreadSignal = baseRows.map((r) => `${r.id}:${r.unread}`).join(",")
+  const chatSummary = useChatSummary(liveId(project.id), unreadSignal)
+  const rows = useMemo(() => withMentions(baseRows, chatSummary.summary), [baseRows, chatSummary.summary])
+  const roomTitle = (channel: number) => [...channelChats, ...directChats].find((c) => c.liveChannelId === channel)?.title ?? null
+  const openFollowedThread = (channel: number, root: number) => {
+    const chat = [...channelChats, ...directChats].find((c) => c.liveChannelId === channel)
+    if (chat) navigate(`/v3/chat/${chatIdToSlug(chat.id)}?thread=${root}`)
+  }
   const runtimeOf = (title: string) => live?.agents.find((a) => a.display_name === title)?.runtime ?? null
   const open = (chatId: string) => {
     navigate(`/v3/chat/${chatIdToSlug(chatId)}`)
@@ -409,6 +488,10 @@ function ChatWorkspace({ project }: { project: Project }) {
               onNew={params.get("new") === "dm"}
               candidates={candidates}
               onCreate={createConversation}
+              hasMentions={chatSummary.summary != null}
+              following={chatSummary.following}
+              roomTitle={roomTitle}
+              onOpenThread={openFollowedThread}
             />
           </aside>
         ) : null}
@@ -478,7 +561,15 @@ function ChatWorkspace({ project }: { project: Project }) {
         ) : null}
         {threadOpen ? (
           <div className="h-full min-h-0 overflow-hidden">
-            <ThreadPanel key={`${channelId}:${threadParam}`} channel={channelId!} root={threadParam!} currentUser={currentUser} onClose={closeThread} />
+            <ThreadPanel
+              key={`${channelId}:${threadParam}`}
+              channel={channelId!}
+              root={threadParam!}
+              currentUser={currentUser}
+              onClose={closeThread}
+              following={chatSummary.following ? chatSummary.following.some((t) => t.root === threadParam) : null}
+              onFollowChanged={chatSummary.reload}
+            />
           </div>
         ) : null}
       </div>

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { AgentChatContext } from "@/lib/workspace-view"
 
-import { byRecent, chatRow, filterChats } from "./chat-logic"
+import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions } from "./chat-logic"
 
 const chat = (id: string, extra: Partial<AgentChatContext> = {}) =>
   ({ id, mode: "channel", title: id, detail: "A room.", status: "", members: [], primaryAgent: "", unread: 0, messages: [], ...extra }) as AgentChatContext
@@ -34,5 +34,30 @@ describe("filterChats", () => {
     const b = { ...rows[1], at: null }
     const c = { ...rows[0], id: "x", at: "2026-11-08T10:00:00Z" }
     expect([a, b, c].sort(byRecent).map((r) => r.id)).toEqual(["x", "design", "reviewer"])
+  })
+})
+
+describe("mentions and badges (#5983)", () => {
+  const base = chatRow(chat("live:channel:7", { liveChannelId: 7, unread: 3 }))
+  it("takes mentions from the server summary, never more than the live unread", () => {
+    const [r] = withMentions([base], [{ channel: 7, mentions: 5 }])
+    expect(r.mentions).toBe(3)
+    expect(withMentions([{ ...base, unread: 0 }], [{ channel: 7, mentions: 2 }])[0].mentions).toBe(0)
+    expect(withMentions([base], null)[0].mentions).toBe(0)
+    expect(withMentions([base], [{ channel: 8, mentions: 2 }])[0].mentions).toBe(0)
+  })
+  it("filters the Mentions tab", () => {
+    const rows = withMentions([base, chatRow(chat("live:channel:8", { liveChannelId: 8, unread: 1 }))], [{ channel: 7, mentions: 1 }])
+    expect(filterChats(rows, "mentions", "").map((r) => r.id)).toEqual(["live:channel:7"])
+  })
+  it("badges @N in primary when mentioned, a plain count otherwise", () => {
+    expect(rowBadge({ ...base, mentions: 1 })).toEqual({ text: "@3", mention: true, label: "3 unread, you are mentioned" })
+    expect(rowBadge(base)).toEqual({ text: "3", mention: false, label: "3 unread" })
+    expect(rowBadge({ ...base, unread: 120 })?.text).toBe("99+")
+    expect(rowBadge({ ...base, unread: 0 })).toBeNull()
+  })
+  it("describes a followed thread like the design", () => {
+    expect(followLine({ replies: 4, last_repliers: ["Claude (main)", "Dalmas"] }, "design-room")).toBe("#design-room, 4 replies, Claude replied last")
+    expect(followLine({ replies: 1, last_repliers: [] }, null)).toBe("1 reply")
   })
 })
