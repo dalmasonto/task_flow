@@ -76,6 +76,7 @@ const ActivityPage = lazyNamed(() => import("./activity/ActivityPage"), "Activit
 const ReviewsPage = lazyNamed(() => import("./reviews/ReviewsPage"), "ReviewsPage")
 const DecisionsPage = lazyNamed(() => import("./decisions/DecisionsPage"), "DecisionsPage")
 const DailyUpdatePage = lazyNamed(() => import("./daily/DailyUpdatePage"), "DailyUpdatePage")
+const OverviewPage = lazyNamed(() => import("./overview/OverviewPage"), "OverviewPage")
 
 export function V3App() {
   useV3Document()
@@ -115,6 +116,7 @@ export function V3App() {
         <Route path="/v3/activity" element={<ActivityPage />} />
         <Route path="/v3/reviews" element={<ReviewsPage />} />
         <Route path="/v3/decisions" element={<DecisionsPage />} />
+        <Route path="/v3/overview" element={<OverviewPage />} />
         <Route path="/v3/daily-update" element={<DailyUpdatePage />} />
         <Route path="/v3/daily-update/:date" element={<DailyUpdatePage />} />
           <Route path="*" element={<NotPortedYet />} />

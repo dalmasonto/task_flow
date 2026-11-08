@@ -36,6 +36,8 @@ const GATE_MAP: [prefix: string, v2: string | string[]][] = [
   // Agents pages need presence (sessions), settings (keys) and the board
   // (what each agent is working on); chat/terminal come from the mount flag.
   ["/v3/agents", ["/dashboard/api", "/dashboard/board"]],
+  // Overview: presence (who is working) and the board (totals, their tasks).
+  ["/v3/overview", ["/dashboard/api", "/dashboard/board"]],
   ["/v3/design", "/dashboard/design"],
   ["/v3/api-keys", "/dashboard/api"],
   ["/v3/project", "/dashboard/api"],
