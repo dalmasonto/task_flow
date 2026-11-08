@@ -22,7 +22,9 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use umbral::prelude::IntoResponse;
 use umbral::web::{Json, Path, Response, StatusCode};
-use umbral_auth::RequireAuth;
+use umbral_auth::{AuthUser, RequireAuth, auth_user};
+
+use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
 
 use crate::models::{TaskflowAgent, taskflow_agent};
 
@@ -39,20 +41,78 @@ fn internal<E: std::fmt::Display>(e: E) -> ApiError {
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal", None, "internal error")
 }
 
+/// The comparison form: NFKC (so full-width and other compatibility forms
+/// fold to their plain letters), lowercased, inner whitespace collapsed.
 fn norm(name: &str) -> String {
-    name.trim().to_lowercase()
+    use unicode_normalization::UnicodeNormalization;
+    let folded: String = name.nfkc().collect::<String>().to_lowercase();
+    folded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Is `name` already another agent's display name in `project`? Trimmed and
-/// case-insensitive. `except` is the agent being renamed or re-linked.
+/// Characters that make a name render like another one: zero-width ones,
+/// bidi overrides, and other format/control characters.
+fn invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(c as u32, 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xFEFF | 0x00AD | 0x180E)
+}
+
+fn script(c: char) -> Option<u8> {
+    match c as u32 {
+        _ if c.is_ascii_alphabetic() => Some(0),
+        0x00C0..=0x024F => Some(0), // Latin-1 / Extended: still Latin
+        0x0370..=0x03FF | 0x1F00..=0x1FFF => Some(1), // Greek
+        0x0400..=0x052F => Some(2), // Cyrillic
+        _ => None,
+    }
+}
+
+/// A display name fit to show: 1 to 80 characters after trimming, nothing
+/// invisible, and not Latin mixed with Greek or Cyrillic (the cheap half of a
+/// confusables check: "codеx" with a Cyrillic е reads as "codex"). Review of
+/// #1078; a full confusables table is overkill for now.
+pub fn clean_name(raw: &str) -> Result<String, &'static str> {
+    let name = raw.trim().to_string();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err("1 to 80 characters.");
+    }
+    if name.chars().any(invisible) {
+        return Err("No invisible or control characters.");
+    }
+    let mut seen: Option<u8> = None;
+    for s in name.chars().filter_map(script) {
+        match seen {
+            Some(prev) if prev != s => return Err("Use one alphabet: Latin mixed with Greek or Cyrillic letters reads like another name."),
+            _ => seen = Some(s),
+        }
+    }
+    Ok(name)
+}
+
+/// Is `name` already another agent's display name in `project`, or an active
+/// member's name or username there? Compared by [`norm`]. `except` is the
+/// agent being renamed or re-linked.
 pub async fn name_taken(project: i64, name: &str, except: Option<i64>) -> Result<bool, StatusCode> {
     let want = norm(name);
-    let agents = TaskflowAgent::objects()
-        .filter(taskflow_agent::PROJECT.eq(project))
+    let ise = |_| StatusCode::INTERNAL_SERVER_ERROR;
+    let agents = TaskflowAgent::objects().filter(taskflow_agent::PROJECT.eq(project)).fetch().await.map_err(ise)?;
+    if agents.iter().any(|a| Some(a.id) != except && norm(&a.display_name) == want) {
+        return Ok(true);
+    }
+    // People too: an agent called "Dalmas Ogembo" would read as him.
+    let members = TaskflowProjectMember::objects()
+        .filter(taskflow_project_member::PROJECT.eq(project) & taskflow_project_member::STATUS.eq("active"))
         .fetch()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(agents.iter().any(|a| Some(a.id) != except && norm(&a.display_name) == want))
+        .map_err(ise)?;
+    if members.iter().any(|m| norm(&m.display_name) == want) {
+        return Ok(true);
+    }
+    let user_ids: Vec<i64> = members.iter().filter_map(|m| m.user.as_ref().map(|u| u.id())).collect();
+    if user_ids.is_empty() {
+        return Ok(false);
+    }
+    let users = AuthUser::objects().filter(auth_user::ID.in_(&user_ids)).fetch().await.map_err(ise)?;
+    Ok(users.iter().any(|u| norm(&u.username) == want))
 }
 
 pub fn name_taken_response() -> Response {
@@ -60,7 +120,7 @@ pub fn name_taken_response() -> Response {
         StatusCode::CONFLICT,
         "name_taken",
         Some("display_name"),
-        "Another agent in this project already has that name. Pick another, so nobody mistakes one for the other.",
+        "Someone in this project, an agent or a person, already goes by that name. Pick another, so nobody mistakes one for the other.",
     )
     .into_response()
 }
@@ -103,10 +163,7 @@ pub async fn patch(RequireAuth(user): RequireAuth<i64>, Path(agent_id): Path<i64
 
     let mut v = serde_json::Map::new();
     if let Some(name) = input.display_name {
-        let name = name.trim().to_string();
-        if name.is_empty() || name.chars().count() > 80 {
-            return Err(err(StatusCode::BAD_REQUEST, "invalid", Some("display_name"), "1 to 80 characters."));
-        }
+        let name = clean_name(&name).map_err(|why| err(StatusCode::BAD_REQUEST, "invalid", Some("display_name"), why))?;
         if name != agent.display_name {
             if name_taken(agent.project.id(), &name, Some(agent.id)).await.map_err(|s| err(s, "internal", None, "internal error"))? {
                 return Ok(name_taken_response());

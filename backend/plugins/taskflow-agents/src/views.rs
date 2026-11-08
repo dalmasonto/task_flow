@@ -1600,8 +1600,15 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
 
     // #1078 review: a NEW agent can't take a name another agent in the project
     // already has (a second "reviewer (codex)" would read as the real one).
-    if existing_agent.is_none() && crate::profile::name_taken(project_id, &display_name, None).await? {
-        return Ok(crate::profile::name_taken_response());
+    if existing_agent.is_none() {
+        // A new agent's name must be fit to show and not already someone's
+        // (#1078 review). A re-link keeps the name it already has.
+        if let Err(why) = crate::profile::clean_name(&display_name) {
+            return Ok((StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "field": "display_name", "detail": why }))).into_response());
+        }
+        if crate::profile::name_taken(project_id, &display_name, None).await? {
+            return Ok(crate::profile::name_taken_response());
+        }
     }
 
     let tx_display_name = display_name.clone();
