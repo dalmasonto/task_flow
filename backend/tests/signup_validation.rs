@@ -28,6 +28,17 @@ async fn app() -> &'static Router {
     .await
 }
 
+async fn register_form(username: &str, email: &str) -> (u16, Value) {
+    let body = format!("username={username}&email={email}&password=a-long-enough-pass");
+    let client = TestClient::new(app().await.clone());
+    client.set_default_header(
+        http::header::CONTENT_TYPE,
+        http::HeaderValue::from_static("application/x-www-form-urlencoded"),
+    );
+    let res = client.send(http::Method::POST, "/api/auth/register", axum::body::Body::from(body)).await;
+    (res.status().as_u16(), res.body_json())
+}
+
 async fn register(username: &str, email: &str) -> (u16, Value) {
     let res = TestClient::new(app().await.clone())
         .post_json("/api/auth/register", &json!({ "username": username, "email": email, "password": "a-long-enough-pass" }))
@@ -67,4 +78,20 @@ async fn leaves_everything_else_to_umbral_auth() {
     // Missing fields are still umbral-auth's invalid_input.
     let res = TestClient::new(app().await.clone()).post_json("/api/auth/register", &json!({ "username": "", "email": "", "password": "" })).await;
     assert_eq!((res.status().as_u16(), res.body_json::<Value>()["error"].as_str()), (400, Some("invalid_input")));
+}
+
+/// #1124: umbral-auth 0.0.13 also accepts form bodies; they must not skip the
+/// checks. (`%20` is a space, `%40` an @.)
+#[tokio::test]
+async fn a_form_body_gets_the_same_checks_as_json() {
+    let n = seq();
+    let (status, body) = register_form(&format!("v3%20probe{n}"), &format!("ok{n}%40example.com")).await;
+    assert_eq!((status, body["error"].as_str()), (400, Some("invalid_username")), "{body}");
+    let (status, body) = register_form(&format!("probe{n}"), "bad").await;
+    assert_eq!((status, body["error"].as_str()), (400, Some("invalid_email")), "{body}");
+
+    let (status, body) = register_form(&format!("Dana{n}"), &format!("dana{n}%40example.com")).await;
+    assert_eq!(status, 201, "a valid form signup still goes through: {body}");
+    let (status, body) = register_form(&format!("dana{n}"), &format!("x{n}%40example.com")).await;
+    assert_eq!((status, body["error"].as_str()), (409, Some("username_taken")), "{body}");
 }

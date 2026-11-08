@@ -9,9 +9,8 @@ use taskflow_projects::models::TaskflowProject;
 use umbral::orm::{Choices, FileField, ForeignKey};
 use umbral_auth::AuthUser;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowTaskStatus {
     NotStarted,
     InProgress,
@@ -22,9 +21,8 @@ pub enum TaskflowTaskStatus {
     Archived,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowTaskPriority {
     Low,
     Normal,
@@ -32,9 +30,8 @@ pub enum TaskflowTaskPriority {
     Critical,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowTaskRelationKind {
     Blocks,
     RelatedTo,
@@ -42,18 +39,16 @@ pub enum TaskflowTaskRelationKind {
     ParentChild,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowActorKind {
     User,
     Agent,
     System,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowSessionState {
     Running,
     Paused,

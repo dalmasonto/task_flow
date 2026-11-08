@@ -20,12 +20,19 @@
 //!
 //! Everything else (missing fields, the password policy, the throttle on the
 //! happy path) stays umbral-auth's.
+//!
+//! **Bodies (#1124):** since 0.0.12 umbral-auth's register takes JSON OR a
+//! form (`JsonOrForm`). This reads the body exactly the way it does: the same
+//! content-type test and the same struct-shaped parse, so any body umbral-auth
+//! would accept is validated here first. A body neither can parse falls
+//! through untouched, and umbral-auth rejects it.
 
 use axum::body::{Body, to_bytes};
 use axum::extract::Request;
 use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use serde_json::{Value, json};
+use serde::Deserialize;
+use serde_json::json;
 use umbral::middleware::Middleware;
 
 /// A register body is three short strings; anything bigger is not one.
@@ -95,6 +102,33 @@ async fn taken(username: &str, email: &str) -> Result<Option<&'static str>, sqlx
     })
 }
 
+/// The two fields this checks, parsed the way umbral-auth parses the whole
+/// body (unknown fields ignored, a duplicate field is an error), so the two
+/// can never disagree about what was sent.
+#[derive(Deserialize)]
+struct RegisterShape {
+    username: String,
+    email: String,
+}
+
+/// Mirrors umbral-auth 0.0.13's `JsonOrForm::from_request`.
+fn is_form(parts: &axum::http::request::Parts) -> bool {
+    parts
+        .headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.to_ascii_lowercase().starts_with("application/x-www-form-urlencoded"))
+}
+
+fn parse_shape(form: bool, bytes: &[u8]) -> Option<(String, String)> {
+    let shape: RegisterShape = if form {
+        serde_urlencoded::from_bytes(bytes).ok()?
+    } else {
+        serde_json::from_slice(bytes).ok()?
+    };
+    Some((shape.username, shape.email))
+}
+
 fn is_register(req: &Request) -> bool {
     req.method() == Method::POST && matches!(req.uri().path(), "/api/auth/register" | "/api/auth/register/")
 }
@@ -116,11 +150,9 @@ impl Middleware for SignupValidation {
             .await
             .map_err(|_| reject(StatusCode::PAYLOAD_TOO_LARGE, "invalid_input", "body", "request too large"))?;
 
-        // Not JSON, or missing fields: rebuild untouched and let umbral-auth
+        // Unparseable, or missing fields: rebuild untouched and let umbral-auth
         // answer exactly as it always has.
-        let parsed: Option<(String, String)> = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| {
-            Some((v.get("username")?.as_str()?.to_string(), v.get("email")?.as_str()?.to_string()))
-        });
+        let parsed = parse_shape(is_form(&parts), &bytes);
         if let Some((username, email)) = parsed.filter(|(u, e)| !u.is_empty() && !e.is_empty()) {
             if let Err(why) = validate_username(&username) {
                 return Err(reject(StatusCode::BAD_REQUEST, "invalid_username", "username", &format!("Username: {why}.")));

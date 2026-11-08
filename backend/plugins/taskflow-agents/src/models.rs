@@ -19,9 +19,8 @@ pub struct MessageTarget {
     pub id: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowAgentStatus {
     Offline,
     Connected,
@@ -31,27 +30,24 @@ pub enum TaskflowAgentStatus {
     Revoked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowCredentialStatus {
     Active,
     Revoked,
     Expired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowAgentSessionStatus {
     Connected,
     Disconnected,
     Expired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowChannelKind {
     Project,
     Task,
@@ -62,26 +58,23 @@ pub enum TaskflowChannelKind {
     Group,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowChannelMemberKind {
     User,
     Agent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowMessagePriority {
     Normal,
     Important,
     Urgent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowTerminalStream {
     Stdout,
     Stderr,
@@ -99,9 +92,8 @@ pub enum TaskflowTerminalStream {
 /// A reviewer's verdict on a task. `approved` moves the task to `done`;
 /// `changes_requested` moves it back to `in_progress` (see the review endpoints
 /// in `views.rs`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowReviewDecision {
     Approved,
     ChangesRequested,
@@ -499,9 +491,8 @@ pub struct TaskflowAgentTerminalFrame {
 
 /// How a pending prompt was resolved. `pending` is the only state a human can
 /// act on; the rest are terminal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowPromptStatus {
     Pending,
     Answered,
@@ -740,9 +731,8 @@ pub struct TaskflowMessageClaim {
     pub released_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowWakeTrigger {
     /// `fire_at` passes.
     AfterTime,
@@ -754,9 +744,8 @@ pub enum TaskflowWakeTrigger {
     MessageInRoom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowWakeDeliver {
     /// A targeted notice in the agent's private "Wake-ups" DM (reaches its pane).
     Pane,
@@ -765,9 +754,8 @@ pub enum TaskflowWakeDeliver {
     Both,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowWakeStatus {
     Armed,
     /// Fired and delivered.
@@ -860,9 +848,8 @@ pub struct TaskflowChannelState {
 
 /// #1098: where a review request stands. `open` until the named reviewer's
 /// `report_review` answers it, or the requester cancels it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowReviewRequestStatus {
     Open,
     Answered,
@@ -920,9 +907,8 @@ pub struct TaskflowReviewRequest {
 }
 
 /// #1117: what kind of proof a piece of evidence is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowEvidenceKind {
     TestRun,
     CiRun,

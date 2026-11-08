@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-umbral = "0.0.10"
-umbral-auth = "0.0.10"
+umbral = "0.0.13"
+umbral-auth = "0.0.13"
 taskflow-projects = { path = "../taskflow-projects" }
 taskflow-tasks = { path = "../taskflow-tasks" }
 serde = { version = "1", features = ["derive"] }
@@ -16,10 +16,10 @@ async-trait = "0.1"
 # umbral::web re-exports axum's Router/Json/Path/get/post but NOT `State`;
 # handlers take their injected deps via `axum::extract::State` directly.
 axum = "0.8"
-umbral-oauth = "0.0.10"
+umbral-oauth = "0.0.13"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
-umbral-testing = "0.0.10"
+umbral-testing = "0.0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 http = "1"

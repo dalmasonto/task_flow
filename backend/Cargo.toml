@@ -35,42 +35,42 @@ taskflow-github = { path = "plugins/taskflow-github" }
 taskflow-design = { path = "plugins/taskflow-design" }
 
 # ----- Framework core (always required) ------------------------------------
-umbral         = "0.0.10"
-umbral-cli     = "0.0.10"
+umbral         = "0.0.13"
+umbral-cli     = "0.0.13"
 
 # ----- Active by default ---------------------------------------------------
 # What the generated `src/main.rs` wires in. Comment any of these out only
 # if you also remove the matching `.plugin(...)` line.
-umbral-auth     = "0.0.10"
-umbral-sessions = "0.0.10"
-umbral-admin    = "0.0.10"
-umbral-rest     = "0.0.10"
-umbral-openapi  = "0.0.10"
-umbral-security = "0.0.10"
-umbral-realtime = "0.0.10"
+umbral-auth     = "0.0.13"
+umbral-sessions = "0.0.13"
+umbral-admin    = "0.0.13"
+umbral-rest     = "0.0.13"
+umbral-openapi  = "0.0.13"
+umbral-security = "0.0.13"
+umbral-realtime = "0.0.13"
 # OAuth / social login + account-linking (GitHub). Wired in main.rs; the
 # taskflow-github plugin reads linked tokens from its SocialAccount model.
-umbral-oauth    = "0.0.10"
+umbral-oauth    = "0.0.13"
 # Observability init helper (structured JSON logging). Enable the `otel`
 # feature to ALSO export OpenTelemetry traces over OTLP to a collector
-# (Jaeger/Tempo/Honeycomb): `umbral-logs = { version = "0.0.10", features = ["otel"] }`.
-umbral-logs     = "0.0.10"
+# (Jaeger/Tempo/Honeycomb): `umbral-logs = { version = "0.0.13", features = ["otel"] }`.
+umbral-logs     = "0.0.13"
 # Serves ./static at /static — including the compiled Tailwind bundle this
 # project ships. Not optional: the SecurityPlugin's CSP blocks third-party
 # script/style CDNs, so an app must serve its own assets.
 # `s3`: the S3Storage backend for `collectstatic --storage s3` and the
 # `backup_media` bin (MinIO / R2 / S3 targets).
-umbral-storage  = { version = "0.0.10", features = ["s3"] }
+umbral-storage  = { version = "0.0.13", features = ["s3"] }
 
 # ----- Available built-ins (uncomment + register in main.rs to enable) -----
-umbral-playground   = "0.0.10"  # Interactive API playground UI (think mini-Postman) at /playground/.
-# umbral-tasks        = "0.0.10"  # DB-backed background task queue with a worker process.
-# umbral-permissions  = "0.0.10"  # ContentType + Group + Permission model.
-# umbral-rls          = "0.0.10"  # Postgres row-level security policy registration.
-# umbral-cache        = "0.0.10"  # Per-request caching helper.
-# umbral-email        = "0.0.10"  # SMTP + MIME email composer + sender.
-# umbral-signals      = "0.0.10"  # Pre/post save/delete signal dispatch.
-# umbral-livereload   = "0.0.10"  # Dev-only browser live-reload (SSE push + file watcher). Add `.plugin(LiveReloadPlugin::new())`.
+umbral-playground   = "0.0.13"  # Interactive API playground UI (think mini-Postman) at /playground/.
+# umbral-tasks        = "0.0.13"  # DB-backed background task queue with a worker process.
+# umbral-permissions  = "0.0.13"  # ContentType + Group + Permission model.
+# umbral-rls          = "0.0.13"  # Postgres row-level security policy registration.
+# umbral-cache        = "0.0.13"  # Per-request caching helper.
+# umbral-email        = "0.0.13"  # SMTP + MIME email composer + sender.
+# umbral-signals      = "0.0.13"  # Pre/post save/delete signal dispatch.
+# umbral-livereload   = "0.0.13"  # Dev-only browser live-reload (SSE push + file watcher). Add `.plugin(LiveReloadPlugin::new())`.
 
 # ----- Third-party + framework runtime deps --------------------------------
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -78,6 +78,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# #1124: read form-encoded register bodies the way umbral-auth 0.0.13 does.
+serde_urlencoded = "0.7"
 chrono = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.8", features = ["macros", "sqlite", "postgres", "chrono", "runtime-tokio"] }
 # The framework Middleware trait names axum's Request/Response types, so a
@@ -91,25 +93,7 @@ axum = "0.8"
 # ----- Test-only deps ------------------------------------------------------
 # Integration tests under `tests/` boot an in-process app and drive its router.
 [dev-dependencies]
-umbral-testing = "0.0.10"
+umbral-testing = "0.0.13"
 axum           = "0.8"
 http           = "1"
 
-# TEMPORARY (2026-07-31): the crates.io 0.0.10 media_access gate hands the
-# callback the raw percent-ENCODED path, so every spaced key ("Screenshot
-# from ...") fails the attachment lookup and 403s. `vendor/umbral-storage` is
-# the published 0.0.10 with ONLY the percent-decode fix applied; the real fix
-# + regression test live in the umbra checkout (plugins/umbral-storage) for
-# the 0.0.11 release. REMOVE the vendor dir and this patch at 0.0.11. The
-# in-repo relative path keeps the deploy workflow buildable meanwhile.
-[patch.crates-io]
-umbral-storage = { path = "vendor/umbral-storage" }
-# Same deal: published 0.0.10 + ONLY the AlterColumn varchar-widening render
-# fix (a max_length-only change previously rendered NO DDL, so widened models
-# never reached Postgres). Real fix + tests in the umbra checkout
-# (crates/umbral-core, tests/varchar_length_alter.rs). Remove at 0.0.11.
-umbral-core = { path = "vendor/umbral-core" }
-# Same deal: published 0.0.10 + ONLY the RestrictIn value-typing fix (scope
-# ids bound as text against bigint columns 500 every scoped LIST on Postgres).
-# Real fix + tests in umbra (plugins/umbral-rest, tests/restrict_in_typing.rs).
-umbral-rest = { path = "vendor/umbral-rest" }
