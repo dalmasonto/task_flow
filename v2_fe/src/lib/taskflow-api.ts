@@ -2473,6 +2473,10 @@ export async function disconnectGithub(password: string): Promise<{ disconnected
     const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
     if (body?.error === "password_required") throw new GithubPasswordRequired(body.detail || "That password isn't right. If you've never set one, set a password first, then disconnect.")
   }
+  if (response.status === 429) {
+    const body = (await response.json().catch(() => null)) as { detail?: string } | null
+    throw new Error(body?.detail || "Too many tries. Wait a few minutes and try again.")
+  }
   if (!response.ok) throw new Error(await readErrorDetail(response, "Couldn't disconnect GitHub."))
   return readJson(response)
 }
