@@ -2291,6 +2291,10 @@ function App() {
       },
       setChatSurfaceMounted,
       refresh: () => void loadLiveWorkspace(activeProjectId),
+      applyLiveUpdate: (updater) => {
+        if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
+      },
+      reloadLive: () => loadLiveWorkspace(activeProjectId),
       logout: () => handleLogout(V3_LOGIN),
     }
     return (

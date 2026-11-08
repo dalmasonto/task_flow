@@ -38,6 +38,11 @@ export type V3Workspace = {
   /// terminal slices (v2's agents page uses the same signal).
   setChatSurfaceMounted: (mounted: boolean) => void
   refresh: () => void
+  /// Apply a local change to the active project's live workspace (what v2's
+  /// pages call onWorkspaceUpdate), e.g. after a write the server echoes.
+  applyLiveUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
+  /// Refetch the active project's live workspace and wait for it.
+  reloadLive: () => Promise<void>
   logout: () => Promise<void>
 }
 
