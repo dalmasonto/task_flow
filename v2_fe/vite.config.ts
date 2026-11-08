@@ -66,6 +66,19 @@ export default defineConfig({
       '/realtime': {
         target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
+        // The proxy only sends response headers with the first body byte, and the
+        // SSE stream's first byte is a heartbeat ~15 s in, so EventSource sat in
+        // "connecting" that long in dev. Flush the headers as soon as they're set
+        // (after http-proxy's synchronous writeHead). Dev only; prod is Caddy.
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes, _req, res) => {
+            if (String(proxyRes.headers['content-type'] ?? '').startsWith('text/event-stream')) {
+              setImmediate(() => {
+                if (!res.headersSent) res.flushHeaders()
+              })
+            }
+          })
+        },
       },
     },
   },

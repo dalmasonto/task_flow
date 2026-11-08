@@ -203,10 +203,20 @@ async function authRequest<T>(path: string, init: RequestInit = {}) {
   })
 
   if (!response.ok) {
-    throw new Error(await readError(response))
+    throw new AuthHttpError(response.status, await readError(response))
   }
 
   return readJson<T>(response)
+}
+
+/// A non-2xx auth response, keeping the status so callers can tell "the server
+/// rejected this token" (401/403) from a hiccup (5xx, 429).
+export class AuthHttpError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
 }
 
 export async function registerUser(input: { username: string; email: string; password: string }): Promise<AuthResult> {
@@ -284,12 +294,20 @@ export async function changePassword(input: {
   }
 }
 
+/// Who the stored token belongs to. Only the server saying the token is no good
+/// (401/403) signs you out. A network drop, a 5xx, a 429, or a check cut short by
+/// navigating away used to clear the session too, signing people out for a
+/// blip; those now keep the stored user. The server still checks the token on
+/// every request, so this only decides what the UI shows meanwhile.
 export async function fetchCurrentUser(): Promise<AuthUser | null> {
   try {
     return await authRequest<AuthUser>("/api/auth/me")
-  } catch {
-    clearStoredSession()
-    return null
+  } catch (error) {
+    if (error instanceof AuthHttpError && (error.status === 401 || error.status === 403)) {
+      clearStoredSession()
+      return null
+    }
+    return getStoredUser()
   }
 }
 

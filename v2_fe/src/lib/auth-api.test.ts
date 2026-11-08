@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest"
-import { parseOAuthRedirect, takeOAuthError } from "./auth-api"
+import { afterEach, describe, it, expect, vi } from "vitest"
+import { fetchCurrentUser, parseOAuthRedirect, takeOAuthError } from "./auth-api"
 
 describe("parseOAuthRedirect", () => {
   it("extracts a bearer token from the fragment", () => {
@@ -48,5 +48,42 @@ describe("takeOAuthError", () => {
   it("returns null when there is nothing stored", () => {
     const storage = { getItem: () => null, removeItem: () => {} }
     expect(takeOAuthError(storage)).toBeNull()
+  })
+})
+
+describe("fetchCurrentUser", () => {
+  const user = { id: 9, username: "probe", email: "p@example.com", is_staff: false, is_superuser: false }
+  function stub(respond: () => Promise<Response>) {
+    const store = new Map<string, string>([
+      ["taskflow.auth.token", "umbral_x"],
+      ["taskflow.auth.user", JSON.stringify(user)],
+    ])
+    const localStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    }
+    vi.stubGlobal("window", { localStorage, location: { origin: "http://localhost" } })
+    vi.stubGlobal("fetch", vi.fn(respond))
+    return store
+  }
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("signs out when the server rejects the token", async () => {
+    const store = stub(async () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }))
+    expect(await fetchCurrentUser()).toBeNull()
+    expect(store.has("taskflow.auth.token")).toBe(false)
+  })
+  it("keeps the session through a network drop or an aborted check", async () => {
+    const store = stub(() => Promise.reject(new TypeError("Failed to fetch")))
+    expect(await fetchCurrentUser()).toEqual(user)
+    expect(store.get("taskflow.auth.token")).toBe("umbral_x")
+  })
+  it("keeps the session through a server error or rate limit", async () => {
+    for (const status of [429, 500, 502]) {
+      const store = stub(async () => new Response("busy", { status }))
+      expect(await fetchCurrentUser()).toEqual(user)
+      expect(store.get("taskflow.auth.token")).toBe("umbral_x")
+    }
   })
 })
