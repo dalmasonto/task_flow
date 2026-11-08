@@ -1082,6 +1082,7 @@ export function mapLiveChannelMessages(
         editedAt: message.edited_at,
         canEdit: own,
         replyTo: quote(message.reply_to),
+        threadRoot: message.thread_root != null ? String(message.thread_root) : null,
         attachments: workspace.messageAttachments
           .filter((attachment) => attachment.message === message.id)
           .map(mapStoredAttachment),

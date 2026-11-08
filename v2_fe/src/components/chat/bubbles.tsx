@@ -1,7 +1,7 @@
 import { MessageAttachments } from "@/components/message-attachments"
 import { QuestionCard } from "@/components/chat/structured-question"
 import { Button } from "@/components/ui/button"
-import { CheckCheckIcon, CheckIcon, CopyIcon, CrosshairIcon, FileIcon, ImageIcon, PencilIcon, ReplyIcon, RotateCcwIcon, XIcon } from "lucide-react"
+import { CheckCheckIcon, CheckIcon, CopyIcon, CrosshairIcon, FileIcon, ImageIcon, MessagesSquareIcon, PencilIcon, ReplyIcon, RotateCcwIcon, XIcon } from "lucide-react"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/attachment-kind"
@@ -178,6 +178,8 @@ export function AgentChatBubble({
   showDesignBadge = true,
   questionState,
   onOpenQuestion,
+  onOpenThread,
+  threadSummary,
 }: {
   message: AgentMessage
   onRetry?: (nonce: string) => void
@@ -198,6 +200,10 @@ export function AgentChatBubble({
   questionState?: "open" | "answered" | "cancelled"
   /// #644: open the answer dialog for this message's question set.
   onOpenQuestion?: (message: AgentMessage) => void
+  /// #1132: open this message's thread (a reply opens its root's thread).
+  onOpenThread?: (rootId: string) => void
+  /// #1132: this root's replies, for the "N replies" link under the bubble.
+  threadSummary?: { replyCount: number; lastReplyAt: string | null } | null
 }) {
   const fromUser = message.from === "user"
   const alignRight = fromUser
@@ -289,6 +295,13 @@ export function AgentChatBubble({
                   title="Reply"
                   icon={<ReplyIcon className="size-3.5" />}
                   run={() => onReply(message)}
+                />
+              ) : null}
+              {onOpenThread && message.status === "posted" ? (
+                <BubbleAction
+                  title="Reply in thread"
+                  icon={<MessagesSquareIcon className="size-3.5" />}
+                  run={() => onOpenThread(message.threadRoot ?? message.id)}
                 />
               ) : null}
               {canEdit && !editing ? (
@@ -389,6 +402,18 @@ export function AgentChatBubble({
           <div className="mt-3">
             <MessageAttachments attachments={message.attachments} />
           </div>
+        ) : null}
+        {onOpenThread && message.threadRoot ? (
+          <button type="button" className="mt-2 block text-xs text-muted-foreground hover:text-foreground hover:underline" onClick={() => onOpenThread(message.threadRoot!)}>
+            Replied in a thread
+          </button>
+        ) : null}
+        {onOpenThread && threadSummary?.replyCount ? (
+          <button type="button" className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline" onClick={() => onOpenThread(message.id)}>
+            <MessagesSquareIcon className="size-3.5" />
+            {threadSummary.replyCount} {threadSummary.replyCount === 1 ? "reply" : "replies"}
+            {threadSummary.lastReplyAt ? <span className="font-normal text-muted-foreground">· last {formatMessageTime(threadSummary.lastReplyAt, "")}</span> : null}
+          </button>
         ) : null}
         {message.choices ? (
           <div className="mt-3 flex flex-wrap gap-2">

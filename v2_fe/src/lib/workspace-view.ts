@@ -149,6 +149,9 @@ export type AgentMessage = {
   /// when the parent is not among the loaded messages (older page, or gone) —
   /// the quote then says so instead of vanishing.
   replyTo?: ReplyQuote | null
+  /// #1132: the root this message is a thread reply under (an also-sent reply
+  /// shows in the feed), or null for an ordinary message.
+  threadRoot?: string | null
 }
 
 /// #317: a quoted parent. `from` is already resolved ("You" for your own).

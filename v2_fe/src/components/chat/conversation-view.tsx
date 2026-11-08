@@ -56,6 +56,8 @@ export function AgentsConversationView({
   readCursorMessages,
   pageMentions,
   onOpenPage,
+  onOpenThread,
+  threadSummaries,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   /// #506: the design pages `@page:` can mention. Absent (every surface but the
@@ -76,6 +78,10 @@ export function AgentsConversationView({
   /// distinction it names is real and a rail that renders a subset would need it
   /// again; nothing passes it today.
   readCursorMessages?: AgentMessage[]
+  /// #1132: open a thread panel for this root id. Absent: no thread actions.
+  onOpenThread?: (rootId: string) => void
+  /// #1132: reply counts by root id, for the links under root bubbles.
+  threadSummaries?: Record<string, { replyCount: number; lastReplyAt: string | null }>
 }) {
   const compact = variant === "compact"
   const isDesign = variant === "design"
@@ -789,6 +795,8 @@ export function AgentsConversationView({
                   requestAnimationFrame(focusComposer)
                 }}
                 onJumpTo={jumpToMessage}
+                onOpenThread={onOpenThread}
+                threadSummary={threadSummaries?.[item.message.id] ?? null}
                 showDesignBadge={showDesignBadge}
                 // #644: the card inside the bubble reads the question's state
                 // from the thread, and its Answer button targets THIS message.

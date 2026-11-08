@@ -17,17 +17,22 @@ import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { chatIdToSlug, findPublicRoomChat, liveId, slugToChatId, upsertById } from "@/lib/live-mappers"
 import { createTaskflowChannel } from "@/lib/taskflow-api"
+import { subscribeThreadEvents } from "@/lib/thread-bus"
+import { fetchThreadSummaries } from "@/lib/threads-api"
 import type { Project } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
 import { timeAgo } from "../lib/time"
+import { useLoad } from "../lib/use-load"
 import { V3Shell } from "../shell/V3Shell"
 import { seedTaskFrom } from "../tasks/task-seed"
 import { useWorkspace } from "../workspace"
 import { byRecent, chatRow, filterChats, type ChatFilter, type ChatRow } from "./chat-logic"
 import { focusComposerIn } from "./focus"
+import { ThreadPanel } from "./ThreadPanel"
+import { channelIdOf } from "./thread-logic"
 
 const FILTERS: { id: ChatFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -230,13 +235,37 @@ function ChatWorkspace({ project }: { project: Project }) {
     return () => cancelAnimationFrame(raf)
   }, [selectedId])
 
+  // #1132: threads. ?thread=<root id> opens the panel (deep-linkable); reply
+  // counts load for the roots on screen and refresh when a thread row arrives.
+  const channelId = channelIdOf(selectedId)
+  const threadParam = Number(params.get("thread")) || null
+  const openThread = (rootId: string) => {
+    const next = new URLSearchParams(params)
+    next.set("thread", rootId)
+    setParams(next, { replace: false })
+  }
+  const closeThread = () => {
+    const next = new URLSearchParams(params)
+    next.delete("thread")
+    setParams(next, { replace: true })
+  }
+  const rootIds = (selectedChat?.messages ?? []).filter((m) => m.status === "posted" && !m.threadRoot).map((m) => Number(m.id)).filter((n) => Number.isInteger(n) && n > 0)
+  const summaries = useLoad(channelId && rootIds.length ? `threads|${channelId}|${rootIds.join(",")}` : null, (signal) => fetchThreadSummaries(channelId!, rootIds.slice(-200), signal))
+  const reloadSummaries = summaries.reload
+  useEffect(() => subscribeThreadEvents((e) => (e.kind === "delete" || e.message.channel === channelId ? reloadSummaries() : undefined)), [channelId, reloadSummaries])
+  const threadSummaries = useMemo(
+    () => Object.fromEntries(Object.entries(summaries.data ?? {}).map(([k, v]) => [k, { replyCount: v.reply_count, lastReplyAt: v.last_reply_at }])),
+    [summaries.data],
+  )
+  const threadOpen = !!(threadParam && channelId)
+
   const showList = !isBelowLg || !slug
-  const showConvo = !isBelowLg || !!slug
+  const showConvo = (!isBelowLg || !!slug) && !(isBelowLg && threadOpen)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {messageError ? <p className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">{messageError}</p> : null}
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] overflow-hidden", threadOpen ? "lg:grid-cols-[19rem_minmax(0,1fr)_24rem]" : "lg:grid-cols-[19rem_minmax(0,1fr)]")}>
         {showList ? (
           <aside className="min-h-0 border-border lg:border-r" aria-label="Conversations">
             <ChatList
@@ -261,8 +290,8 @@ function ChatWorkspace({ project }: { project: Project }) {
               </div>
             ) : null}
             {selectedChat ? (
-              <div className="min-h-0 flex-1">
-                <AgentsConversationView {...outletContext} />
+              <div className="flex min-h-0 flex-1 flex-col">
+                <AgentsConversationView {...outletContext} onOpenThread={channelId ? openThread : undefined} threadSummaries={threadSummaries} />
               </div>
             ) : (
               <Empty className="m-auto max-w-sm">
@@ -278,6 +307,11 @@ function ChatWorkspace({ project }: { project: Project }) {
               </Empty>
             )}
           </section>
+        ) : null}
+        {threadOpen ? (
+          <div className="h-full min-h-0 overflow-hidden">
+            <ThreadPanel key={`${channelId}:${threadParam}`} channel={channelId!} root={threadParam!} currentUser={currentUser} onClose={closeThread} />
+          </div>
         ) : null}
       </div>
     </div>
