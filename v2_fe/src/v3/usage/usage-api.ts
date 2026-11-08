@@ -69,8 +69,11 @@ export const fetchUsageSettings = (project: number, signal?: AbortSignal) => get
 
 export const fetchUsagePrices = async (project: number, signal?: AbortSignal) => (await get<{ results?: UsagePrice[] }>(`${base(project)}/prices`, signal, "Couldn't load prices")).results ?? []
 
-export async function saveUsageSettings(project: number, s: Partial<Omit<UsageSettings, "updated_by_label" | "updated_at">>): Promise<UsageSettings> {
-  const res = await fetch(`${base(project)}/settings`, withBearer({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(s) }))
+/// The whole settings row is replaced, and the server denies unknown fields,
+/// so exactly these five are sent (never the read-only `updated_*`).
+export async function saveUsageSettings(project: number, s: Omit<UsageSettings, "updated_by_label" | "updated_at">): Promise<UsageSettings> {
+  const input = { budget_micros: s.budget_micros, alert_percent: s.alert_percent, alert_channel: s.alert_channel, task_cap_micros: s.task_cap_micros, idle_alert: s.idle_alert }
+  const res = await fetch(`${base(project)}/settings`, withBearer({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }))
   if (res.status === 403) throw new Error("Only owners and admins can change the budget.")
   if (!res.ok) {
     const b = (await res.json().catch(() => null)) as { field?: string; reason?: string } | null
