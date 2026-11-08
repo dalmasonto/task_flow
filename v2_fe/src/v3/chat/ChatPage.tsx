@@ -476,12 +476,8 @@ function ChatWorkspace({ project }: { project: Project }) {
         }
       : undefined
   // #5988 item 8: what each agent message's sender ran while writing it.
-  const agentMessages = (selectedChat?.messages ?? [])
-    .filter((m) => m.status === "posted" && agentNames.has(m.from))
-    .map((m) => ({ id: Number(m.id), createdAt: m.createdAt ?? null }))
-    .filter((m) => Number.isInteger(m.id) && m.id > 0)
-    .slice(-100)
-  const tools = useMessageTools(channelId, agentMessages)
+  const agentMessageIds = (selectedChat?.messages ?? []).filter((m) => m.status === "posted" && agentNames.has(m.from)).map((m) => Number(m.id)).filter((n) => Number.isInteger(n) && n > 0).slice(-100)
+  const tools = useMessageTools(channelId, agentMessageIds)
   const renderFooter = (m: AgentMessage) => (
     <>
       <ToolsLine tools={tools[m.id]} />
