@@ -66,8 +66,10 @@ export function clampActive(active: number, count: number): number {
   return Math.min(active, count - 1)
 }
 
-/** A stable key for "this `@` and its query": the highlight resets to the top
- *  when it changes, and an Esc dismissal holds until a NEW `@` is typed. */
+/** A key for "this `@` and its query". It changes with every character, so
+ *  the highlight resets to the top on each new query. It is NOT the Esc
+ *  dismissal: that is keyed by the `@` position alone (the composer's
+ *  `mentionDismissedAt`), so it holds while typing and lifts on a new `@`. */
 export function mentionKey(mention: { start: number; query: string } | null): string | null {
   return mention ? `${mention.start}:${mention.query}` : null
 }
