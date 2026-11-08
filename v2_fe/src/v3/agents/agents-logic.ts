@@ -1,5 +1,6 @@
 /// Rules for the v3 agents pages (tested in agents-logic.test.ts).
 import type { TaskflowAgent, TaskflowAgentSession, TaskflowTask } from "@/api/client"
+import { AGENT_CAPABILITIES } from "@/lib/agent-scopes"
 import { isAgentOnline } from "@/lib/live-mappers"
 
 import { guessModel, type ModelId } from "../components/actor-models"
@@ -44,3 +45,13 @@ const STATE_ORDER: Record<AgentState, number> = { live: 0, idle: 1, offline: 2 }
 export function countByState(rows: AgentRow[]): Record<AgentState | "all", number> {
   return { all: rows.length, live: rows.filter((r) => r.state === "live").length, idle: rows.filter((r) => r.state === "idle").length, offline: rows.filter((r) => r.state === "offline").length }
 }
+
+/// What the create sends for the toggles: default-on capabilities turned off
+/// are denials; opt-in ones turned on are grants (both owner/admin-only).
+export function keyScopes(checked: Record<string, boolean>): { scopes: string[]; denied_scopes: string[] } {
+  return {
+    scopes: AGENT_CAPABILITIES.filter((c) => !c.defaultOn && checked[c.id]).map((c) => c.id),
+    denied_scopes: AGENT_CAPABILITIES.filter((c) => c.defaultOn && !checked[c.id]).map((c) => c.id),
+  }
+}
+

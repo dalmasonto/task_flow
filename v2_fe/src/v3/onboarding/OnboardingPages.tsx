@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import type { TaskflowAgentMessage } from "@/api/client"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowRightIcon, BuildingIcon, CheckIcon, CircleDashedIcon, CopyIcon, MessagesSquareIcon, TriangleAlertIcon, UserIcon } from "lucide-react"
+import { ArrowRightIcon, BuildingIcon, CheckIcon, CircleDashedIcon, MessagesSquareIcon, TriangleAlertIcon, UserIcon } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -23,7 +23,8 @@ import { linkAgent, sendTaskflowAgentMessage, setProjectAgentInstructions } from
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
-import { MODELS, type ModelId } from "../components/actor-models"
+import { CopyBlock } from "../components/copy-block"
+import { ModelPicker } from "../components/model-picker"
 import { BrandMark } from "../marketing/public-chrome"
 import { useWorkspace } from "../workspace"
 import { agentConnectState, handshakeStage, initCommand, kickoffBody, linkDrafts, PAIRINGS, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
@@ -86,32 +87,6 @@ function Heading({ title, children }: { title: string; children?: ReactNode }) {
     <div className="max-w-2xl">
       <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
       {children ? <p className="mt-2 text-muted-foreground">{children}</p> : null}
-    </div>
-  )
-}
-
-function CopyBlock({ label, text }: { label: string; text: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-terminal text-terminal-foreground">
-      <div className="flex items-center justify-between border-b border-terminal-foreground/10 px-4 py-2">
-        <span className="font-mono text-xs opacity-70">{label}</span>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs opacity-80 hover:bg-terminal-foreground/10 hover:opacity-100"
-          aria-label={`Copy ${label}`}
-          onClick={() =>
-            void navigator.clipboard?.writeText(text).then(() => {
-              setCopied(true)
-              window.setTimeout(() => setCopied(false), 1500)
-            })
-          }
-        >
-          {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      <pre className="overflow-x-auto p-4 font-mono text-sm leading-6">{text}</pre>
     </div>
   )
 }
@@ -231,31 +206,6 @@ export function OnboardingProjectPage() {
 }
 
 // ── Step 2: pick two agents ───────────────────────────────────────────────
-
-const PICKABLE: ModelId[] = ["claude", "codex", "gemini", "deepseek", "qwen", "cursor", "copilot", "kimi", "mistral", "ollama", "grok", "openai"]
-
-function ModelPicker({ value, onChange, name }: { value: ModelId; onChange: (m: ModelId) => void; name: string }) {
-  return (
-    <div role="radiogroup" aria-label={`${name}: model`} className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-      {PICKABLE.map((m) => (
-        <button
-          key={m}
-          type="button"
-          role="radio"
-          aria-checked={value === m}
-          onClick={() => onChange(m)}
-          className={cn(
-            "flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-sm transition-colors",
-            value === m ? "border-ring bg-accent ring-2 ring-ring/20" : "border-border hover:bg-accent/50",
-          )}
-        >
-          <ActorAvatar model={m} name={MODELS[m].label} size="xs" />
-          <span className="truncate">{MODELS[m].label}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
 
 export function OnboardingAgentsPage() {
   const navigate = useNavigate()
