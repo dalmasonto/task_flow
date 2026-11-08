@@ -8,7 +8,9 @@
 //! `updated_at`, so an agent that claimed but never heartbeated still gets a
 //! full lease. It expires at `anchor + lease` (30 minutes by default,
 //! `TASKFLOW_CLAIM_LEASE_MINUTES`, 5 to 1440). Renewal is implicit: any
-//! heartbeat moves the anchor. No new MCP call.
+//! heartbeat moves the anchor. No new MCP call. **Any edit to the task also
+//! renews it** (through `updated_at`), whoever makes it: conservative on
+//! purpose, a task someone is touching isn't taken away.
 //!
 //! **Only active work is released:** `not_started` and `in_progress`. A task
 //! the agent paused, marked blocked, or handed to review keeps its assignee;
