@@ -2021,8 +2021,40 @@ export async function createTaskflowProject(input: CreateProjectInput): Promise<
   return readJson(response)
 }
 
-export function updateTaskflowProject(projectId: number, input: TaskflowProjectUpdate) {
-  return taskflowApi.update(taskflowTables.projects, projectId, input)
+/// What a client may change on a project (#1137). The owner/admin handler is
+/// the only writer, with `deny_unknown_fields`: `owner` is never client-written,
+/// and the `github_*` columns go through the GitHub routes. Archiving, or
+/// bringing a project back from archived, needs an owner.
+export type ProjectSettingsPatch = Pick<TaskflowProjectUpdate, "name" | "slug" | "description_markdown" | "repository_url" | "default_api_base_url" | "status">
+
+const PROJECT_PATCH_FIELDS = ["name", "slug", "description_markdown", "repository_url", "default_api_base_url", "status"] as const
+
+/// Edit project settings through `PATCH /api/taskflow/projects/{p}` (REST is
+/// read-only for projects since #1137). Returns the saved row; realtime
+/// delivers it too.
+export async function updateTaskflowProject(projectId: number, input: ProjectSettingsPatch): Promise<TaskflowProject> {
+  // Only the allowlisted keys go on the wire, so a wider object (a form's
+  // whole update) can't 400 on an unknown field.
+  const body = Object.fromEntries(PROJECT_PATCH_FIELDS.filter((k) => input[k] !== undefined).map((k) => [k, input[k]]))
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const data = (await response.clone().json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(
+      data?.error === "slug_taken"
+        ? "Another project already uses that short name."
+        : data?.error === "owner_only"
+          ? "Only an owner can archive a project or bring it back."
+          : response.status === 403
+            ? "Only the project's owners and admins can change its settings."
+            : await readErrorDetail(response, `Could not save the project (${response.status}).`)
+    )
+  }
+  return readJson(response)
 }
 
 export function archiveTaskflowProject(projectId: number) {
