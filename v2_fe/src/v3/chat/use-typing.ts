@@ -2,7 +2,7 @@
 /// events arrive and as each one's time runs out.
 import { useEffect, useState } from "react"
 
-import { subscribeTyping, typersNow, type Typer } from "@/lib/typing"
+import { pruneTyping, subscribeTyping, typersNow, type Typer } from "@/lib/typing"
 
 export function useTypers(me: string | null): Map<number, Typer[]> {
   const [now, setNow] = useState(() => Date.now())
@@ -10,7 +10,10 @@ export function useTypers(me: string | null): Map<number, Typer[]> {
   const { byRoom, nextExpiry } = typersNow(now, me)
   useEffect(() => {
     if (nextExpiry == null) return
-    const t = setTimeout(() => setNow(Date.now()), Math.max(50, nextExpiry - Date.now() + 20))
+    const t = setTimeout(() => {
+      pruneTyping()
+      setNow(Date.now())
+    }, Math.max(50, nextExpiry - Date.now() + 20))
     return () => clearTimeout(t)
   }, [nextExpiry])
   return byRoom

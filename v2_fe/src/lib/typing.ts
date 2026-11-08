@@ -17,6 +17,10 @@ export type TypingEvent = { channel: number; who: { kind: "user" | "agent"; id: 
 export type Typer = { key: string; label: string; until: number; context: TypingContext | null }
 
 const SEND_EVERY_MS = 3_000
+/// How long one event shows "is writing", on THIS browser's clock: the
+/// event's `until` is the server's clock, and a skewed laptop would show it
+/// far too long or never (reviewer, #6002).
+export const SHOW_FOR_MS = 6_000
 
 // ------------------------------------------------------------------ the bus
 
@@ -28,11 +32,19 @@ function isTypingEvent(d: unknown): d is TypingEvent {
   return !!e && typeof e.channel === "number" && !!e.who && (e.who.kind === "user" || e.who.kind === "agent") && typeof e.who.id === "number" && typeof e.label === "string" && typeof e.until === "string"
 }
 
+/// Forget everyone whose time ran out, so the map doesn't grow per typer.
+export function pruneTyping(now = Date.now()): void {
+  for (const [channel, room] of rooms) {
+    for (const [key, t] of room) if (t.until <= now) room.delete(key)
+    if (!room.size) rooms.delete(channel)
+  }
+}
+
 /// From App's stream. Ignores anything that isn't a well-formed typing event.
-export function publishTyping(d: unknown): void {
+export function publishTyping(d: unknown, now = Date.now()): void {
   if (!isTypingEvent(d)) return
-  const until = Date.parse(d.until)
-  if (!Number.isFinite(until)) return
+  pruneTyping(now)
+  const until = now + SHOW_FOR_MS
   const key = `${d.who.kind}:${d.who.id}`
   const room = rooms.get(d.channel) ?? new Map<string, Typer>()
   room.set(key, { key, label: d.label, until, context: d.context ?? null })

@@ -1,33 +1,44 @@
 import { beforeEach, describe, expect, it } from "vitest"
 
-import { clearTyper, publishTyping, resetTyping, typersNow, typingText } from "./typing"
+import { clearTyper, publishTyping, pruneTyping, resetTyping, SHOW_FOR_MS, typersNow, typingText } from "./typing"
 
-const at = (ms: number) => new Date(ms).toISOString()
+// `until` is the server's clock; the client ignores it (skew), so any value works.
+const ev = (channel: number, kind: "user" | "agent", id: number, label: string) => ({ channel, who: { kind, id }, label, context: null, until: "1970-01-01T00:00:00Z" })
 
 describe("typing (#5988)", () => {
   beforeEach(() => resetTyping())
 
-  it("keeps who is writing per room until their time runs out, minus me", () => {
-    publishTyping({ channel: 4, who: { kind: "agent", id: 5 }, label: "reviewer (codex)", context: null, until: at(10_000) })
-    publishTyping({ channel: 4, who: { kind: "user", id: 1 }, label: "Me", context: null, until: at(12_000) })
-    publishTyping({ channel: 9, who: { kind: "user", id: 2 }, label: "Ann", context: null, until: at(8_000) })
+  it("shows each typer for 6 s from arrival on this clock, per room, minus me", () => {
+    publishTyping(ev(4, "agent", 5, "reviewer (codex)"), 1_000)
+    publishTyping(ev(4, "user", 1, "Me"), 1_000)
+    publishTyping(ev(9, "user", 2, "Ann"), 3_000)
     const a = typersNow(5_000, "user:1")
     expect(a.byRoom.get(4)?.map((t) => t.label)).toEqual(["reviewer (codex)"])
-    expect(a.nextExpiry).toBe(8_000)
-    expect(typersNow(9_000, "user:1").byRoom.has(9)).toBe(false)
-    expect(typersNow(11_000, "user:1").byRoom.size).toBe(0)
+    expect(a.nextExpiry).toBe(1_000 + SHOW_FOR_MS)
+    expect(typersNow(7_500, "user:1").byRoom.has(4)).toBe(false)
+    expect(typersNow(7_500, "user:1").byRoom.get(9)).toHaveLength(1)
   })
 
   it("a later event extends; a sent message clears; junk is ignored", () => {
-    publishTyping({ channel: 4, who: { kind: "agent", id: 5 }, label: "R", context: null, until: at(1_000) })
-    publishTyping({ channel: 4, who: { kind: "agent", id: 5 }, label: "R", context: null, until: at(9_000) })
-    expect(typersNow(5_000, null).byRoom.get(4)).toHaveLength(1)
+    publishTyping(ev(4, "agent", 5, "R"), 0)
+    publishTyping(ev(4, "agent", 5, "R"), 5_000)
+    expect(typersNow(9_000, null).byRoom.get(4)).toHaveLength(1)
     clearTyper(4, "agent:5")
-    expect(typersNow(5_000, null).byRoom.size).toBe(0)
-    publishTyping({ channel: "4", who: { kind: "agent", id: 5 }, label: "R", until: at(9_000) })
-    publishTyping({ channel: 4, who: { kind: "root", id: 5 }, label: "R", until: at(9_000) })
-    publishTyping(null)
-    expect(typersNow(5_000, null).byRoom.size).toBe(0)
+    expect(typersNow(9_000, null).byRoom.size).toBe(0)
+    publishTyping({ ...ev(4, "agent", 5, "R"), channel: "4" }, 0)
+    publishTyping({ ...ev(4, "agent", 5, "R"), who: { kind: "root", id: 5 } }, 0)
+    publishTyping(null, 0)
+    expect(typersNow(1, null).byRoom.size).toBe(0)
+  })
+
+  it("forgets expired typers instead of keeping them for the session", () => {
+    publishTyping(ev(4, "agent", 5, "R"), 0)
+    publishTyping(ev(9, "agent", 6, "S"), 0)
+    pruneTyping(SHOW_FOR_MS + 1)
+    // Nothing left to expire: the map is empty, not just filtered.
+    expect(typersNow(0, null).byRoom.size).toBe(0)
+    publishTyping(ev(4, "agent", 7, "T"), 100_000)
+    expect(typersNow(100_000, null).byRoom.get(4)?.map((t) => t.label)).toEqual(["T"])
   })
 
   it("says it like a person", () => {
