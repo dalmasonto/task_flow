@@ -5,7 +5,7 @@
 /// so it's left out rather than guessed.
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { AlarmClockIcon, BotIcon, CircleDotIcon, MessageSquareIcon, PlusIcon, TerminalIcon } from "lucide-react"
+import { AlarmClockIcon, BotIcon, CircleDotIcon, MessageSquareIcon, PlusIcon, SquareTerminalIcon, TerminalIcon } from "lucide-react"
 
 import { TerminalTranscript } from "@/components/chat/terminal"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,7 @@ import { StatusChip } from "../components/status-chip"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
+import { useDetail } from "../lib/use-detail"
 import { agentRows, countByState, type AgentRow, type AgentState } from "./agents-logic"
 import { useAgentSlices } from "./use-agent-slices"
 import { TaskLink } from "../components/task-link"
@@ -41,19 +42,24 @@ export function AddAgentButton() {
   return (
     <Button size="sm" render={<Link to="/v3/agents/new" />} nativeButton={false}>
       <PlusIcon />
-      <span className="hidden sm:inline">Add agent</span>
+      Add agent
     </Button>
   )
 }
 
-function Actions({ row }: { row: AgentRow }) {
+/// Message the agent, or open its live terminal in the right-hand sheet
+/// (#5907 item 14) without leaving the list.
+function Actions({ row, labelled = false }: { row: AgentRow; labelled?: boolean }) {
+  const detail = useDetail()
   return (
-    <div className="flex items-center gap-1">
-      <Button variant="ghost" size="icon-sm" aria-label={`Message ${row.name}`} render={<Link to={`/v3/chat?agent=${row.id}`} />} nativeButton={false}>
+    <div className="flex shrink-0 items-center gap-1">
+      <Button variant={labelled ? "outline" : "ghost"} size={labelled ? "sm" : "icon-sm"} aria-label={`Message ${row.name}`} render={<Link to={`/v3/chat?agent=${row.id}`} />} nativeButton={false}>
         <MessageSquareIcon />
+        {labelled ? <span className="hidden sm:inline">Message</span> : null}
       </Button>
-      <Button variant="ghost" size="icon-sm" aria-label={`Open ${row.name}`} render={<Link to={`/v3/agents/${row.id}`} />} nativeButton={false}>
+      <Button variant={labelled ? "outline" : "ghost"} size={labelled ? "sm" : "icon-sm"} aria-label={`Open ${row.name}'s terminal`} render={<Link to={detail.href({ kind: "terminal", agent: row.id })} />} nativeButton={false}>
         <TerminalIcon />
+        {labelled ? <span className="hidden sm:inline">Terminal</span> : null}
       </Button>
     </div>
   )
@@ -120,21 +126,25 @@ export function AgentsPage() {
                           <span className="truncate">seen {timeAgo(r.lastSeen, now) ?? "—"}</span>
                         </p>
                       </div>
-                      <Actions row={r} />
                     </div>
                     {term ? (
                       <div className="max-h-40 overflow-hidden border-y border-border bg-muted/30 text-xs [&_pre]:text-[11px]">
                         <TerminalTranscript session={term} />
                       </div>
                     ) : null}
-                    {r.task ? (
-                      <TaskLink task={r.task.id} className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted/40">
-                        <CircleDotIcon className="size-3.5 shrink-0 text-running" aria-hidden />
-                        <span className="truncate">
-                          <span className="font-mono text-xs text-muted-foreground">#{r.task.id}</span> {r.task.title}
-                        </span>
-                      </TaskLink>
-                    ) : null}
+                    <div className="mt-auto flex items-center gap-2 px-4 py-2.5">
+                      {r.task ? (
+                        <TaskLink task={r.task.id} className="flex min-w-0 flex-1 items-center gap-2 text-sm hover:underline">
+                          <CircleDotIcon className="size-3.5 shrink-0 text-running" aria-hidden />
+                          <span className="truncate">
+                            <span className="font-mono text-xs text-muted-foreground">#{r.task.id}</span> {r.task.title}
+                          </span>
+                        </TaskLink>
+                      ) : (
+                        <span className="flex-1 text-sm text-muted-foreground">Not on a task</span>
+                      )}
+                      <Actions row={r} labelled />
+                    </div>
                   </article>
                 )
               })}
@@ -166,6 +176,18 @@ export function AgentsPage() {
           </section>
         ) : null}
         {!shown.length ? <p className="text-sm text-muted-foreground">No {tab} agents right now.</p> : null}
+        <Link
+          to="/v3/agents/new"
+          className="flex items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground hover:border-ring hover:text-foreground"
+        >
+          <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
+            <PlusIcon className="size-4" />
+          </span>
+          <span>
+            <span className="block font-medium text-foreground">Add an agent</span>
+            <span className="block text-xs">Claude, Codex, Gemini, DeepSeek or any MCP client. It gets its own key and joins the board and rooms.</span>
+          </span>
+        </Link>
       </div>
     )
   }
@@ -175,9 +197,13 @@ export function AgentsPage() {
       title="Agents"
       actions={
         <>
-          <Button variant="ghost" size="sm" render={<Link to="/v3/agents/wakeups" />} nativeButton={false} className="hidden sm:inline-flex">
+          <Button variant="ghost" size="sm" render={<Link to="/v3/agents/wakeups" />} nativeButton={false} className="hidden md:inline-flex">
             <AlarmClockIcon />
             Wake-ups
+          </Button>
+          <Button variant="outline" size="sm" render={<Link to="/v3/agents/launch" />} nativeButton={false} className="hidden sm:inline-flex">
+            <SquareTerminalIcon />
+            Launch in tmux
           </Button>
           <AddAgentButton />
         </>

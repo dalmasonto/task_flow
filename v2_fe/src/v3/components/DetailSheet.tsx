@@ -16,6 +16,8 @@ import { readDetail, withDetail } from "../lib/detail-params"
 import { useDetail } from "../lib/use-detail"
 import { TaskDetail } from "../tasks/TaskDetail"
 import { TaskNewForm } from "../tasks/TaskNewForm"
+import { AgentTerminal } from "../agents/AgentTerminal"
+import { useWorkspace } from "../workspace"
 
 function Frame({ title, description, actions, children }: { title: string; description?: string; actions?: ReactNode; children: ReactNode }) {
   return (
@@ -27,6 +29,24 @@ function Frame({ title, description, actions, children }: { title: string; descr
       {description ? <SheetDescription className="sr-only">{description}</SheetDescription> : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">{children}</div>
     </>
+  )
+}
+
+function TerminalDetail({ agent }: { agent: number }) {
+  const { live } = useWorkspace()
+  const name = live?.agents.find((a) => a.id === agent)?.display_name ?? `Agent ${agent}`
+  return (
+    <Frame
+      title={`${name}'s terminal`}
+      description="The agent's live terminal"
+      actions={
+        <Button variant="ghost" size="sm" render={<Link to={`/v3/agents/${agent}`} />} nativeButton={false}>
+          Open agent
+        </Button>
+      }
+    >
+      <AgentTerminal agentId={agent} tall />
+    </Frame>
   )
 }
 
@@ -73,6 +93,8 @@ export function DetailSheetHost() {
               onCancel={close}
             />
           </Frame>
+        ) : detail?.kind === "terminal" ? (
+          <TerminalDetail agent={detail.agent} />
         ) : detail?.kind === "activity" ? (
           <Frame title="Activity" description="One activity entry in full">
             <ActivityDetail id={detail.id} />

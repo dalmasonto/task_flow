@@ -3,10 +3,9 @@
 /// instructions, its sessions and keys, and delete.
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { CircleDotIcon, KeyRoundIcon, MessageSquareIcon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react"
+import { CircleDotIcon, KeyRoundIcon, Maximize2Icon, MessageSquareIcon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
-import { TerminalKeypad, TerminalTranscript, TerminalWatchOnly } from "@/components/chat/terminal"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import {
   AlertDialog,
@@ -26,7 +25,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { agentInstructionsOf, patchAgentInstructions } from "@/lib/agent-instructions"
-import { isSessionLive, mapLiveTerminalSessions } from "@/lib/live-mappers"
+import { isSessionLive } from "@/lib/live-mappers"
 import { deleteAgent, setAgentInstructions } from "@/lib/taskflow-api"
 
 import { ActorAvatar } from "../components/actor-avatar"
@@ -38,6 +37,8 @@ import { mayManageKeys } from "../api-keys/api-keys-logic"
 import { RotateKeyDialog } from "../api-keys/RotateKeyDialog"
 import { myMembership } from "../invites/invites-logic"
 import { useWorkspace } from "../workspace"
+import { useDetail } from "../lib/use-detail"
+import { AgentTerminal } from "./AgentTerminal"
 import { agentRows } from "./agents-logic"
 import { useAgentSlices } from "./use-agent-slices"
 import { TaskLink } from "../components/task-link"
@@ -46,6 +47,7 @@ export function AgentPage() {
   useAgentSlices()
   const { id = "" } = useParams()
   const navigate = useNavigate()
+  const detail = useDetail()
   const { live, applyLiveUpdate, isSyncing, currentUser } = useWorkspace()
   const [rotateOpen, setRotateOpen] = useState(false)
   const now = useLivenessNow()
@@ -78,7 +80,6 @@ export function AgentPage() {
     )
   }
 
-  const term = live ? mapLiveTerminalSessions(live, now).find((t) => t.agentId === agentId && t.hasStream) ?? mapLiveTerminalSessions(live, now).find((t) => t.agentId === agentId) : undefined
   const sessions = (live?.agentSessions ?? []).filter((s) => s.agent === agentId).sort((a, b) => (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? ""))
   const keys = (live?.agentCredentials ?? []).filter((c) => c.agent === agentId)
   const instructions = agentInstructionsOf(agent)
@@ -143,17 +144,16 @@ export function AgentPage() {
             </TaskLink>
           ) : null}
 
-          <Section title="Terminal" action={term ? <Badge variant="outline">{term.connected ? "Connected" : "Not connected"}</Badge> : null}>
-            {term ? (
-              <div className="space-y-3">
-                <div className="max-h-[28rem] overflow-hidden rounded-lg border border-border bg-muted/30">
-                  <TerminalTranscript session={term} />
-                </div>
-                {mayManageKeys(agent, myMembership(live?.members ?? [], currentUser?.id), !!currentUser?.is_superuser) ? <TerminalKeypad agentId={agentId} disabled={!term.connected} /> : <TerminalWatchOnly />}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No terminal mirror yet. It appears when the agent runs inside tmux with TaskFlow connected.</p>
-            )}
+          <Section
+            title="Terminal"
+            action={
+              <Button variant="ghost" size="sm" render={<Link to={detail.href({ kind: "terminal", agent: agentId })} />} nativeButton={false}>
+                <Maximize2Icon />
+                Open in a panel
+              </Button>
+            }
+          >
+            <AgentTerminal agentId={agentId} />
           </Section>
 
           <Section

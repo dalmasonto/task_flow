@@ -5,13 +5,14 @@
 ///   ?task=<id>             a task
 ///   ?task=new[&status=x]   the new-task form
 ///   ?activity=<id>         one activity entry
+///   ?terminal=<agent id>   an agent's live terminal
 ///
 /// Pure, so the rules are tested without rendering.
 import { normalizeStatus, type TaskStatus } from "./task-status"
 
-export type Detail = { kind: "task"; id: string } | { kind: "new-task"; status: TaskStatus; column?: string | null } | { kind: "activity"; id: number }
+export type Detail = { kind: "task"; id: string } | { kind: "new-task"; status: TaskStatus; column?: string | null } | { kind: "activity"; id: number } | { kind: "terminal"; agent: number }
 
-const KEYS = ["task", "activity", "status", "column"] as const
+const KEYS = ["task", "activity", "status", "column", "terminal"] as const
 
 export function readDetail(params: URLSearchParams): Detail | null {
   const task = params.get("task")
@@ -23,6 +24,8 @@ export function readDetail(params: URLSearchParams): Detail | null {
   if (task && /^\d+$/.test(task)) return { kind: "task", id: task }
   const activity = params.get("activity")
   if (activity && /^\d+$/.test(activity)) return { kind: "activity", id: Number(activity) }
+  const terminal = params.get("terminal")
+  if (terminal && /^\d+$/.test(terminal)) return { kind: "terminal", agent: Number(terminal) }
   return null
 }
 
@@ -37,6 +40,7 @@ export function withDetail(search: string, detail: Detail | null): string {
     if (detail.status !== "not_started") p.set("status", detail.status)
     if (detail.column) p.set("column", detail.column)
   } else if (detail?.kind === "activity") p.set("activity", String(detail.id))
+  else if (detail?.kind === "terminal") p.set("terminal", String(detail.agent))
   const s = p.toString()
   return s ? `?${s}` : ""
 }

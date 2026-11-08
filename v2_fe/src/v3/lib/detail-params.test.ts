@@ -9,6 +9,7 @@ describe("detail sheet params", () => {
     expect(readDetail(new URLSearchParams("task=new&status=review&column=qa"))).toEqual({ kind: "new-task", status: "partial_done", column: "qa" })
     expect(readDetail(new URLSearchParams("task=new&status=bogus"))).toEqual({ kind: "new-task", status: "not_started", column: null })
     expect(readDetail(new URLSearchParams("activity=9"))).toEqual({ kind: "activity", id: 9 })
+    expect(readDetail(new URLSearchParams("terminal=4"))).toEqual({ kind: "terminal", agent: 4 })
     expect(readDetail(new URLSearchParams("task=12abc"))).toBeNull()
     expect(readDetail(new URLSearchParams("q=x"))).toBeNull()
   })
