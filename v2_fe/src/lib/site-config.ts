@@ -37,10 +37,39 @@ export type SiteConfig = {
 
 /// One row per user — the key is the whole identity, so two accounts signing in
 /// on the same browser profile cannot inherit each other's choice.
+/// A server a person added in the server picker (v3 group 2). Dalmas asked for
+/// these to live in IndexedDB. Only the CHOSEN server stays in localStorage
+/// (lib/server-choice.ts), because every API call needs it synchronously at
+/// startup, before any IndexedDB read could finish.
+export type SavedServerRow = {
+  /// Normalised address (normalizeServer), the key: one row per server.
+  url: string
+  name: string
+  addedAt: number
+  lastUsedAt: number | null
+}
+
+/// A signed-in session kept for a server you've switched away from, so
+/// switching back doesn't ask you to log in again (Dalmas, v3 group 2). Keyed by
+/// the server's normalised address; "" is the build's default server. The token
+/// is the same bearer token localStorage holds for the active server, so this
+/// stores nothing a page script couldn't already read.
+export type ServerSessionRow = {
+  server: string
+  token: string
+  user: { id: number; username: string; email: string; is_staff: boolean; is_superuser: boolean }
+  savedAt: number
+}
+
 const db = new Dexie("taskflow_site_config") as Dexie & {
   config: Table<SiteConfig, number>
+  servers: Table<SavedServerRow, string>
+  sessions: Table<ServerSessionRow, string>
 }
 db.version(1).stores({ config: "userId" })
+// v2 adds `servers`. Never edit the v1 line above: an installed browser upgrades
+// by running each version declaration in order.
+db.version(2).stores({ config: "userId", servers: "url, addedAt", sessions: "server" })
 
 export { db }
 

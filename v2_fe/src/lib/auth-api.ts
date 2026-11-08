@@ -2,6 +2,7 @@ const AUTH_TOKEN_KEY = "taskflow.auth.token"
 const AUTH_USER_KEY = "taskflow.auth.user"
 
 import { readServerOverride } from "@/lib/server-choice"
+import { db as siteDb } from "@/lib/site-config"
 
 /// The server every request goes to: the person's choice from the server picker
 /// (lib/server-choice.ts) if they made one, else the build's default. Read once
@@ -297,5 +298,14 @@ export async function logoutUser() {
     await authRequest<void>("/api/auth/logout", { method: "POST" })
   } finally {
     clearStoredSession()
+    // Logging out means "not signed in here": drop any session kept for this
+    // server too, or switching away and back would sign you straight in again.
+    await siteDb.sessions.delete(API_BASE_URL).catch(() => undefined)
   }
+}
+
+/// Make `token`/`user` the active session (used when switching back to a server
+/// whose session was kept). The caller reloads; App re-validates it then.
+export function adoptStoredSession(token: string, user: AuthUser) {
+  storeSession({ token, user } as LoginResponse)
 }

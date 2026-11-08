@@ -3,7 +3,6 @@
 ///
 /// Pages are ported one by one (stage 2). Until a page lands, its route shows an
 /// honest "not ported yet" state with a link to the v2 page that still works.
-import { useEffect } from "react"
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom"
 import { ArrowUpRightIcon, HammerIcon } from "lucide-react"
 
@@ -13,16 +12,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { V3_HOME } from "./routes"
 import { activeNavId, V2_FALLBACK, V3_NAV } from "./shell/nav"
 import { V3Shell } from "./shell/V3Shell"
-
-/// While a /v3 route is mounted, <html> carries `v3` so the scoped design tokens
-/// (tokens.css) apply, including to portalled dialogs and popovers.
-export function useV3Document() {
-  useEffect(() => {
-    const root = document.documentElement
-    root.classList.add("v3")
-    return () => root.classList.remove("v3")
-  }, [])
-}
+import { useV3Document } from "./use-v3-document"
 
 function NotPortedYet() {
   const { pathname } = useLocation()

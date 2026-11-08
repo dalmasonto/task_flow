@@ -13,8 +13,10 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
-import { API_BASE_URL, BUILD_API_BASE_URL, clearStoredSession, getStoredUser, hasStoredAuthSession } from "@/lib/auth-api"
-import { forgetServer, normalizeServer, probeServer, readSavedServers, saveServer, serverLabel, writeServerChoice, type SavedServer, type ServerProbe } from "@/lib/server-choice"
+import { API_BASE_URL, BUILD_API_BASE_URL, getStoredUser, hasStoredAuthSession } from "@/lib/auth-api"
+import { keptSessions, switchServer } from "@/lib/server-switch"
+import { useLiveQuery } from "dexie-react-hooks"
+import { forgetServer, listSavedServers, normalizeServer, probeServer, saveServer, serverLabel, type SavedServer, type ServerProbe } from "@/lib/server-choice"
 import { cn } from "@/lib/utils"
 
 import { AuthHeading, AuthLayout } from "./auth-ui"
@@ -28,11 +30,12 @@ const DEFAULT_IS_CLOUD = /(^|\.)supercodehive\.com$/.test(new URL(BUILD_API_BASE
 const DEFAULT_NAME = DEFAULT_IS_CLOUD ? "TaskFlow Cloud" : "This site's server"
 const DEFAULT_DETAIL = DEFAULT_IS_CLOUD ? "Hosted by Supercodehive" : `The server ${window.location.host} was built with`
 
+/// One live check per server row. Rows are keyed by address, so a different
+/// server is a different component and starts from "checking" on its own.
 function useProbe(base: string) {
   const [probe, setProbe] = useState<ServerProbe | "checking">("checking")
   useEffect(() => {
     const ctl = new AbortController()
-    setProbe("checking")
     probeServer(base, ctl.signal).then(setProbe, () => undefined)
     return () => ctl.abort()
   }, [base])
@@ -63,8 +66,25 @@ function ProbeLine({ base }: { base: string }) {
   )
 }
 
-function ServerOption({ value, name, detail, base, current, onForget }: { value: string; name: string; detail: string; base: string; current: boolean; onForget?: () => void }) {
-  const user = current && hasStoredAuthSession() ? getStoredUser() : null
+function ServerOption({
+  value,
+  name,
+  detail,
+  base,
+  current,
+  keptUser,
+  onForget,
+}: {
+  value: string
+  name: string
+  detail: string
+  base: string
+  current: boolean
+  /// Who you're signed in as on this server, from a kept session (non-current servers).
+  keptUser?: string
+  onForget?: () => void
+}) {
+  const signedInAs = current ? (hasStoredAuthSession() ? getStoredUser()?.username : undefined) : keptUser
   return (
     <label
       className={cn(
@@ -82,7 +102,7 @@ function ServerOption({ value, name, detail, base, current, onForget }: { value:
         <span className="block truncate font-mono text-xs text-muted-foreground">{base || window.location.origin}</span>
         <span className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
           <ProbeLine base={base} />
-          {current ? <span className="text-muted-foreground">{user ? `Signed in as ${user.username}` : "Not signed in"}</span> : null}
+          <span className="text-muted-foreground">{signedInAs ? `Signed in as ${signedInAs}` : "Not signed in"}</span>
         </span>
       </span>
       {onForget ? (
@@ -123,14 +143,16 @@ function AddServerForm({ onSaved }: { onSaved: (s: SavedServer) => void }) {
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const name = String(new FormData(e.currentTarget).get("name") ?? "")
+    // Keep the element: React releases the event's currentTarget once we await.
+    const form = e.currentTarget
+    const name = String(new FormData(form).get("name") ?? "")
     const base = await check()
     if (!base) return
-    saveServer({ name, url: base })
-    onSaved({ name: name.trim() || serverLabel(base), url: base })
+    const saved = await saveServer({ name, url: base })
+    if (saved) onSaved(saved)
     setUrl("")
     setChecked(null)
-    e.currentTarget.reset()
+    form.reset()
   }
 
   return (
@@ -186,18 +208,23 @@ function AddServerForm({ onSaved }: { onSaved: (s: SavedServer) => void }) {
 
 export function ServerPickerPage() {
   const current = API_BASE_URL === BUILD_API_BASE_URL ? DEFAULT_KEY : API_BASE_URL
-  const [saved, setSaved] = useState<SavedServer[]>(() => readSavedServers().filter((s) => s.url !== BUILD_API_BASE_URL))
+  // Live from IndexedDB: adding or forgetting a server re-renders the list.
+  const savedRows = useLiveQuery(listSavedServers, [], undefined)
+  const kept = useLiveQuery(keptSessions, [], {} as Record<string, { username: string }>)
+  const saved = (savedRows ?? []).filter((s) => s.url !== BUILD_API_BASE_URL)
   const [choice, setChoice] = useState<string>(current)
-  const [adding, setAdding] = useState(saved.length === 0)
+  const [adding, setAdding] = useState<boolean | null>(null)
+  // Open the add form by default only when nothing is saved yet (once the list has loaded).
+  const showAdd = adding ?? (savedRows !== undefined && saved.length === 0)
   const chosenBase = choice === DEFAULT_KEY ? BUILD_API_BASE_URL : choice
   const chosenName = choice === DEFAULT_KEY ? DEFAULT_NAME : (saved.find((s) => s.url === choice)?.name ?? serverLabel(choice))
 
-  function useServer() {
+  async function switchToChosen() {
     if (choice !== current) {
-      // A session belongs to one server: never send this one's token to another.
-      writeServerChoice(choice === DEFAULT_KEY ? null : choice)
-      clearStoredSession()
-      window.location.assign("/v3/login")
+      // Keeps this server's session and restores the target's, if you were
+      // signed in there before (lib/server-switch.ts). Tokens never cross servers.
+      const target = choice === DEFAULT_KEY ? BUILD_API_BASE_URL : choice
+      window.location.assign(await switchServer(target, BUILD_API_BASE_URL))
       return
     }
     window.location.assign(hasStoredAuthSession() ? "/v3/board" : "/v3/login")
@@ -215,7 +242,14 @@ export function ServerPickerPage() {
       </p>
 
       <RadioGroup value={choice} onValueChange={(v) => setChoice(String(v))} aria-label="Saved servers" className="mt-6 gap-3">
-        <ServerOption value={DEFAULT_KEY} name={DEFAULT_NAME} detail={DEFAULT_DETAIL} base={BUILD_API_BASE_URL} current={current === DEFAULT_KEY} />
+        <ServerOption
+          value={DEFAULT_KEY}
+          name={DEFAULT_NAME}
+          detail={DEFAULT_DETAIL}
+          base={BUILD_API_BASE_URL}
+          current={current === DEFAULT_KEY}
+          keptUser={kept[BUILD_API_BASE_URL]?.username}
+        />
         {saved.map((s) => (
           <ServerOption
             key={s.url}
@@ -224,12 +258,12 @@ export function ServerPickerPage() {
             detail="Self-hosted"
             base={s.url}
             current={current === s.url}
+            keptUser={kept[s.url]?.username}
             onForget={
               current === s.url
                 ? undefined
                 : () => {
-                    forgetServer(s.url)
-                    setSaved(readSavedServers())
+                    void forgetServer(s.url)
                     if (choice === s.url) setChoice(current)
                   }
             }
@@ -237,8 +271,8 @@ export function ServerPickerPage() {
         ))}
       </RadioGroup>
 
-      <Collapsible open={adding} onOpenChange={setAdding} className="mt-4">
-        {adding ? null : (
+      <Collapsible open={showAdd} onOpenChange={setAdding} className="mt-4">
+        {showAdd ? null : (
           <CollapsibleTrigger render={<Button variant="ghost" className="rounded-xl" />}>
             <PlusIcon />
             Add an organisation's server
@@ -247,7 +281,6 @@ export function ServerPickerPage() {
         <CollapsibleContent>
           <AddServerForm
             onSaved={(s) => {
-              setSaved(readSavedServers().filter((x) => x.url !== BUILD_API_BASE_URL))
               setChoice(s.url)
               setAdding(false)
             }}
@@ -255,10 +288,15 @@ export function ServerPickerPage() {
         </CollapsibleContent>
       </Collapsible>
 
-      <Button size="lg" className="mt-8 h-11 w-full rounded-xl" onClick={useServer}>
+      <Button size="lg" className="mt-8 h-11 w-full rounded-xl" onClick={() => void switchToChosen()}>
         {choice === current ? `Continue to ${chosenName}` : `Switch to ${chosenName}`}
       </Button>
-      {choice !== current ? <p className="mt-2 text-center text-xs text-muted-foreground">Switching signs you out of {serverLabel(API_BASE_URL)}.</p> : null}
+      {choice !== current ? (
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          {kept[choice === DEFAULT_KEY ? BUILD_API_BASE_URL : choice] ? "You're still signed in there." : "You'll sign in there next."} Your session on{" "}
+          {serverLabel(API_BASE_URL)} is kept for when you come back.
+        </p>
+      ) : null}
       <p className="mt-6 text-sm text-muted-foreground">
         Running TaskFlow for your own organisation? Add your server's address, for example <code className="font-mono text-xs">http://localhost:8000</code>. Nothing needs
         rebuilding.{" "}

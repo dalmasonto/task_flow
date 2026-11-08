@@ -28,7 +28,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const next = useNext(V3_HOME)
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ text: string; offerReset: boolean } | null>(null)
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -38,7 +38,11 @@ export function LoginPage() {
     const result = await loginUser({ username: String(f.get("identifier") ?? "").trim(), password: String(f.get("password") ?? "") })
     setPending(false)
     if (result.ok) navigate(next, { replace: true })
-    else setError(friendlyAuthError("login", result.message).text)
+    else {
+      const err = friendlyAuthError("login", result.message)
+      // A reset link only helps when the password was the problem, not the network.
+      setError({ text: err.text, offerReset: /don't match/.test(err.text) })
+    }
   }
 
   return (
@@ -48,11 +52,16 @@ export function LoginPage() {
       <SocialSignIn returnPath={next} />
       {error ? (
         <FormError>
-          {error}{" "}
-          <Link to="/v3/forgot-password" className="font-medium underline underline-offset-4">
-            Reset your password
-          </Link>
-          .
+          {error.text}
+          {error.offerReset ? (
+            <>
+              {" "}
+              <Link to="/v3/forgot-password" className="font-medium underline underline-offset-4">
+                Reset your password
+              </Link>
+              .
+            </>
+          ) : null}
         </FormError>
       ) : null}
       <form className="mt-6" onSubmit={submit} noValidate>

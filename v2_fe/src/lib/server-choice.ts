@@ -8,9 +8,9 @@
 /// reloads the page. A session belongs to one server, so switching also signs
 /// you out rather than sending one server's token to another.
 
+import { db as siteDb } from "@/lib/site-config"
+
 const SERVER_KEY = "taskflow.server"
-const SAVED_KEY = "taskflow.server.saved"
-const MAX_SAVED = 20
 
 function storage(): Storage | null {
   try {
@@ -44,33 +44,36 @@ export function readServerOverride(): string | null {
   return v ? normalizeServer(v) : null
 }
 
-/// Servers a person has added, with the label they gave each. Saved on this
-/// device only; the build default is always listed separately.
+/// Servers a person has added live in IndexedDB (site-config's `servers`
+/// table). Newest first. Failures read as "none saved": the list is a
+/// convenience, and the picker still works with only the default.
 export type SavedServer = { name: string; url: string }
 
-export function readSavedServers(): SavedServer[] {
+export async function listSavedServers(): Promise<SavedServer[]> {
   try {
-    const list = JSON.parse(storage()?.getItem(SAVED_KEY) ?? "[]")
-    if (!Array.isArray(list)) return []
-    return list
-      .map((s) => ({ name: typeof s?.name === "string" ? s.name.trim().slice(0, 80) : "", url: typeof s?.url === "string" ? normalizeServer(s.url) : null }))
-      .filter((s): s is SavedServer => !!s.url)
-      .slice(0, MAX_SAVED)
+    const rows = await siteDb.servers.orderBy("addedAt").reverse().toArray()
+    return rows.map((r) => ({ name: r.name, url: r.url })).filter((r) => normalizeServer(r.url) === r.url)
   } catch {
     return []
   }
 }
 
-/// Add or rename a saved server (matched by address).
-export function saveServer(server: SavedServer) {
+/// Add or rename a saved server (matched by its normalised address).
+export async function saveServer(server: SavedServer): Promise<SavedServer | null> {
   const url = normalizeServer(server.url)
-  if (!url) return
-  const list = [{ name: server.name.trim() || serverLabel(url), url }, ...readSavedServers().filter((s) => s.url !== url)].slice(0, MAX_SAVED)
-  storage()?.setItem(SAVED_KEY, JSON.stringify(list))
+  if (!url) return null
+  const name = server.name.trim().slice(0, 80) || serverLabel(url)
+  const existing = await siteDb.servers.get(url).catch(() => undefined)
+  await siteDb.servers.put({ url, name, addedAt: existing?.addedAt ?? Date.now(), lastUsedAt: existing?.lastUsedAt ?? null })
+  return { name, url }
 }
 
-export function forgetServer(url: string) {
-  storage()?.setItem(SAVED_KEY, JSON.stringify(readSavedServers().filter((s) => s.url !== url)))
+export async function forgetServer(url: string): Promise<void> {
+  await siteDb.servers.delete(url).catch(() => undefined)
+}
+
+export async function markServerUsed(url: string): Promise<void> {
+  await siteDb.servers.update(url, { lastUsedAt: Date.now() }).catch(() => undefined)
 }
 
 /// Pick a server (null = back to the build default). The caller signs out and

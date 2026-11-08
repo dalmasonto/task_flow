@@ -13,7 +13,6 @@ import { MENTION_URL, parseMentionHref, type MentionKind } from "@/lib/mention-t
 /// sanitizer allows), so the `a` component below renders them as chips. Skips
 /// text inside existing links (no nested links) and never touches `inlineCode` /
 /// `code`: those are their own node types, so a tag in backticks stays literal.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function remarkRefChips() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const visit = (node: any): void => {

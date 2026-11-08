@@ -273,7 +273,8 @@ export function DocArticlePage() {
   const docs = loadDocs()
   const i = docs.findIndex((d) => d.slug === slug)
   const doc = docs[i]
-  const headings = useMemo(() => (doc ? docHeadings(doc.body) : []), [doc])
+  // Cheap (one pass over one guide), so no memo.
+  const headings = doc ? docHeadings(doc.body) : []
   useEffect(() => {
     // A link to /docs/x#heading lands on the heading once the article renders.
     const id = window.location.hash.slice(1)

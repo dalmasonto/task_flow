@@ -9,7 +9,7 @@ import { Navigate, Route, Routes } from "react-router-dom"
 
 import { hasStoredAuthSession } from "@/lib/auth-api"
 
-import { useV3Document } from "./V3App"
+import { useV3Document } from "./use-v3-document"
 import { PageLoading } from "./components/page-loading"
 import { V3_HOME, V3_LOGIN } from "./routes"
 
