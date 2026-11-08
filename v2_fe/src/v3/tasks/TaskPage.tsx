@@ -24,12 +24,15 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
+import { fetchClaimLease } from "@/lib/taskflow-api"
 import { columns, type ColumnId, type Priority } from "@/lib/workspace-view"
 
 import { StatusChip } from "../components/status-chip"
 import { COLUMN_LABEL, COLUMN_TONE } from "../components/status-tones"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
+import { leaseLabel, leaseLeft } from "../board/board-logic"
+import { useLoad } from "../lib/use-load"
 import { useWorkspace } from "../workspace"
 import { DescriptionSection, EvidenceSection, FilesSection, NotesSection, RelationsSection, TimelineSection } from "./TaskSections"
 
@@ -74,6 +77,9 @@ export function TaskPage() {
   const task = tv.current?.id === id ? tv.current : null
   const live = tv.live
   const raw = live?.tasks.find((t) => String(t.id) === id) ?? projectLive?.tasks.find((t) => String(t.id) === id)
+  const lease = useLoad("claim-lease", (signal) => fetchClaimLease(signal))
+  const leaseAgent = raw?.assigned_agent_id != null ? (live?.agents ?? projectLive?.agents ?? []).find((a) => a.id === raw.assigned_agent_id) : undefined
+  const leftOnLease = leaseLeft(raw, leaseAgent, lease.data?.lease_minutes ?? null, now)
 
   const save = async (patch: TaskflowTaskUpdate, what: string) => {
     try {
@@ -288,6 +294,13 @@ export function TaskPage() {
                   }}
                 />
               </Prop>
+              {leftOnLease != null ? (
+                <Prop label="Claim lease">
+                  <span title="The agent keeps this task while it's active. If it goes quiet this long, the task is released for someone else.">
+                    {leftOnLease > 0 ? `Expires in ${leaseLabel(leftOnLease)}` : "Expired; releasing soon"}
+                  </span>
+                </Prop>
+              ) : null}
               {raw?.review_gate && !/^no review gate/i.test(raw.review_gate) ? <Prop label="Review gate">{raw.review_gate}</Prop> : null}
               {raw?.github_repo ? (
                 <Prop label="Repo">

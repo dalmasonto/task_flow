@@ -6,6 +6,9 @@ import type { TaskflowTask } from "@/api/client"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import type { Task } from "@/lib/workspace-view"
 
+import { fetchClaimLease } from "@/lib/taskflow-api"
+
+import { useLoad } from "../lib/use-load"
 import { useWorkspace } from "../workspace"
 import { boardRepos, cardInfo, EMPTY_FILTER, filterBoard, type BoardFilter } from "./board-logic"
 
@@ -19,7 +22,9 @@ export function useBoardData(filter: BoardFilter) {
     return m
   }, [live?.taskAttachments])
   const shown = filterBoard(projectTasks, rawById, filter, currentUser?.id ?? null)
-  const card = (t: Task) => cardInfo(t, rawById.get(t.id), live?.agents ?? [], files.get(t.id) ?? 0, now)
+  // The lease length is a server setting; read once per page.
+  const lease = useLoad("claim-lease", (signal) => fetchClaimLease(signal))
+  const card = (t: Task) => cardInfo(t, rawById.get(t.id), live?.agents ?? [], files.get(t.id) ?? 0, now, lease.data?.lease_minutes ?? null)
   const count = (f: BoardFilter) => filterBoard(projectTasks, rawById, f, currentUser?.id ?? null).length
   return { shown, card, count, repos: boardRepos(rawById.values()), all: projectTasks }
 }

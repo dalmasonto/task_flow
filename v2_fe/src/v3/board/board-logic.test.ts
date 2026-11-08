@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { TaskflowAgent, TaskflowTask } from "@/api/client"
 import type { Task } from "@/lib/workspace-view"
 
-import { activeView, boardRepos, cardInfo, EMPTY_FILTER, filterBoard, filterIsActive, viewFilter } from "./board-logic"
+import { activeView, boardRepos, cardInfo, EMPTY_FILTER, filterBoard, filterIsActive, leaseLabel, leaseLeft, viewFilter } from "./board-logic"
 
 const task = (id: string, extra: Partial<Task> = {}) =>
   ({ id, title: `Task ${id}`, priority: "normal", status: "in_progress", owner: "", operatorName: "", tags: [], ...extra }) as Task
@@ -74,5 +74,27 @@ describe("saved views", () => {
     expect(activeView(viewFilter("review"))).toBe("review")
     expect(activeView(EMPTY_FILTER)).toBe("all")
     expect(activeView({ ...viewFilter("review"), search: "x" })).toBeNull()
+  })
+})
+
+describe("leaseLeft / leaseLabel (#1126)", () => {
+  const now = Date.parse("2026-11-08T12:00:00Z")
+  const raw = (status: string, updated: string, agent: number | null = 7) => ({ assigned_agent_id: agent, status, updated_at: updated }) as Parameters<typeof leaseLeft>[0]
+  it("runs from the later of the heartbeat and the last edit", () => {
+    expect(leaseLeft(raw("in_progress", "2026-11-08T11:40:00Z"), { last_seen_at: "2026-11-08T11:50:00Z" }, 30, now)).toBe(20)
+    expect(leaseLeft(raw("in_progress", "2026-11-08T11:55:00Z"), { last_seen_at: "2026-11-08T11:00:00Z" }, 30, now)).toBe(25)
+    expect(leaseLeft(raw("not_started", "2026-11-08T11:00:00Z"), undefined, 30, now)).toBe(-30)
+  })
+  it("applies only to claimed active work", () => {
+    expect(leaseLeft(raw("partial_done", "2026-11-08T11:55:00Z"), undefined, 30, now)).toBeNull()
+    expect(leaseLeft(raw("blocked", "2026-11-08T11:55:00Z"), undefined, 30, now)).toBeNull()
+    expect(leaseLeft(raw("in_progress", "2026-11-08T11:55:00Z", null), undefined, 30, now)).toBeNull()
+    expect(leaseLeft(raw("in_progress", "2026-11-08T11:55:00Z"), undefined, null, now)).toBeNull()
+  })
+  it("labels it", () => {
+    expect(leaseLabel(42)).toBe("42m")
+    expect(leaseLabel(65)).toBe("1h 5m")
+    expect(leaseLabel(0)).toBe("Releasing")
+    expect(leaseLabel(null)).toBeNull()
   })
 })
