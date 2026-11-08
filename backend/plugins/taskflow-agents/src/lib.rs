@@ -31,6 +31,8 @@ pub mod summary;
 pub mod follows;
 // #5988: "X is writing".
 pub mod typing;
+// #5988 item 8: tools run per agent message.
+pub mod tools;
 pub mod channel_state;
 pub mod claims;
 // #1125: post_save for a row written by a guarded column update.
