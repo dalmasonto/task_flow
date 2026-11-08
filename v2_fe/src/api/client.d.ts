@@ -163,6 +163,10 @@ export interface TaskflowAgent {
   last_seen_at: string | null;
   instructions_markdown: string | null;
   instructions_updated_at: string | null;
+  /** #1078: who makes the model (anthropic|openai|google|other). Absent before migration 0039. */
+  provider?: string | null;
+  /** #1078: the model name, free text. */
+  model?: string | null;
   created_at: string | null;
 }
 

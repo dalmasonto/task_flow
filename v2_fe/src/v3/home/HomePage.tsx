@@ -20,7 +20,7 @@ import { taskflowApi, taskflowTables } from "@/lib/taskflow-api"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
-import { guessModel } from "../components/actor-models"
+import { agentModelId } from "../components/actor-models"
 import { StatusChip } from "../components/status-chip"
 import { COLUMN_LABEL } from "../components/status-tones"
 import { fetchInbox, type InboxItem } from "../inbox/inbox-api"
@@ -234,7 +234,7 @@ export function HomePage() {
                       </div>
                       <span className="flex -space-x-1.5">
                         {team.map((a) => (
-                          <ActorAvatar key={a.id} model={guessModel(a.runtime) ?? guessModel(a.display_name)} name={a.display_name} status={isAgentOnline(a.id, agents.data ?? [], [], now) ? "running" : "offline"} size="sm" />
+                          <ActorAvatar key={a.id} model={agentModelId(a)} name={a.display_name} status={isAgentOnline(a.id, agents.data ?? [], [], now) ? "running" : "offline"} size="sm" />
                         ))}
                       </span>
                     </div>
@@ -312,7 +312,7 @@ export function HomePage() {
                     return (
                       <li key={a.id}>
                         <button type="button" onClick={() => openProject(String(a.project), `/v3/agents/${a.id}`)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-muted/50">
-                          <ActorAvatar model={guessModel(a.runtime) ?? guessModel(a.display_name)} name={a.display_name} status={on ? "running" : "offline"} size="sm" />
+                          <ActorAvatar model={agentModelId(a)} name={a.display_name} status={on ? "running" : "offline"} size="sm" />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">{a.display_name}</span>
                             <span className="block truncate text-xs text-muted-foreground">

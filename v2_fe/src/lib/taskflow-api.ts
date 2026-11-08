@@ -1433,6 +1433,35 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
   return readJson(response)
 }
 
+/// #1078: rename an agent or say what runs it. Owner/admin or the human who
+/// linked it. A rename keeps its id, keys and history; names are unique in a
+/// project. `null` clears provider or model.
+export type AgentProfileInput = { display_name?: string; provider?: "anthropic" | "openai" | "google" | "other" | null; model?: string | null }
+
+export async function updateAgentProfile(agentId: number, input: AgentProfileInput): Promise<TaskflowAgent> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    const data = (await response.clone().json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(
+      data?.error === "name_taken"
+        ? "Another agent in this project already has that name."
+        : data?.error === "changed"
+          ? "Someone renamed it meanwhile. Reload and try again."
+          : data?.error === "invalid" && data.detail
+            ? data.detail
+            : response.status === 403
+              ? "Only the project's owners and admins, or the person who added this agent, can change it."
+              : await readErrorDetail(response, `Could not save the agent (${response.status}).`)
+    )
+  }
+  return readJson(response)
+}
+
 /// The credential fields the key routes return (never the hash).
 export type KeySummary = Pick<TaskflowAgentCredential, "id" | "agent" | "name" | "key_prefix" | "status" | "created_at" | "revoked_at">
 

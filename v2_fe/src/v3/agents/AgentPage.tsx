@@ -36,6 +36,7 @@ import { V3Shell } from "../shell/V3Shell"
 import { Section } from "../tasks/TaskSections"
 import { mayManageKeys } from "../api-keys/api-keys-logic"
 import { RotateKeyDialog } from "../api-keys/RotateKeyDialog"
+import { EditAgentDialog } from "./EditAgentDialog"
 import { myMembership } from "../invites/invites-logic"
 import { useWorkspace } from "../workspace"
 import { agentRows } from "./agents-logic"
@@ -47,6 +48,7 @@ export function AgentPage() {
   const navigate = useNavigate()
   const { live, applyLiveUpdate, isSyncing, currentUser } = useWorkspace()
   const [rotateOpen, setRotateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const now = useLivenessNow()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
@@ -80,6 +82,9 @@ export function AgentPage() {
   const term = live ? mapLiveTerminalSessions(live, now).find((t) => t.agentId === agentId && t.hasStream) ?? mapLiveTerminalSessions(live, now).find((t) => t.agentId === agentId) : undefined
   const sessions = (live?.agentSessions ?? []).filter((s) => s.agent === agentId).sort((a, b) => (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? ""))
   const keys = (live?.agentCredentials ?? []).filter((c) => c.agent === agentId)
+  // #1127/#1078: owner/admin, the human who linked it, or a superuser may
+  // drive it, change its key and edit its details (the server's rule).
+  const canDrive = mayManageKeys(agent, myMembership(live?.members ?? [], currentUser?.id), !!currentUser?.is_superuser)
   const instructions = agentInstructionsOf(agent)
 
   const saveInstructions = async () => {
@@ -110,6 +115,12 @@ export function AgentPage() {
               <MoreHorizontalIcon />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {canDrive ? (
+                <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                  <PencilIcon />
+                  Edit details
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
                 <Trash2Icon />
                 Delete agent
@@ -127,7 +138,7 @@ export function AgentPage() {
               <h2 className="truncate text-xl font-semibold tracking-tight">{agent.display_name}</h2>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <StatusChip tone={row.state === "live" ? "running" : row.state === "idle" ? "idle" : "paused"} label={row.state === "live" ? "Working" : row.state === "idle" ? "Online, idle" : "Offline"} />
-                {agent.runtime ? <span>{agent.runtime}</span> : null}
+                {agent.model ? <span className="font-mono text-xs">{agent.model}</span> : agent.runtime ? <span>{agent.runtime}</span> : null}
                 <span>{row.lastSeen ? `seen ${timeAgo(row.lastSeen, now)}` : "never connected"}</span>
               </p>
             </div>
@@ -148,7 +159,7 @@ export function AgentPage() {
                 <div className="max-h-[28rem] overflow-hidden rounded-lg border border-border bg-muted/30">
                   <TerminalTranscript session={term} />
                 </div>
-                {mayManageKeys(agent, myMembership(live?.members ?? [], currentUser?.id), !!currentUser?.is_superuser) ? <TerminalKeypad agentId={agentId} disabled={!term.connected} /> : <TerminalWatchOnly />}
+                {canDrive ? <TerminalKeypad agentId={agentId} disabled={!term.connected} /> : <TerminalWatchOnly />}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No terminal mirror yet. It appears when the agent runs inside tmux with TaskFlow connected.</p>
@@ -228,7 +239,7 @@ export function AgentPage() {
               <p className="text-sm text-muted-foreground">No keys.</p>
             )}
             <p className="mt-3 text-xs text-muted-foreground">A key is shown once, when it&apos;s made. Lost it? Make a new key; the old one stops at once.</p>
-            {mayManageKeys(agent, myMembership(live?.members ?? [], currentUser?.id), !!currentUser?.is_superuser) ? (
+            {canDrive ? (
               <>
                 <Button size="sm" variant="outline" className="mt-2" onClick={() => setRotateOpen(true)}>
                   <KeyRoundIcon />
@@ -243,6 +254,7 @@ export function AgentPage() {
         </aside>
       </div>
 
+      <EditAgentDialog key={editOpen ? "open" : "closed"} agent={agent} open={editOpen} onOpenChange={setEditOpen} />
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>

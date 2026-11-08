@@ -20,7 +20,7 @@ import { columns, type ColumnId, type Priority } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
-import { guessModel, type ModelId } from "../components/actor-models"
+import { agentModelId, type ModelId } from "../components/actor-models"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { requestReview } from "./task-api"
@@ -87,7 +87,7 @@ export function TaskNewPage() {
         kind: "agent" as const,
         id: a.id,
         name: a.display_name,
-        model: guessModel(a.runtime) ?? guessModel(a.display_name),
+        model: agentModelId(a),
         online,
         detail: busy ? `Busy on #${busy.id}` : online ? "Online, free" : "Offline",
       }

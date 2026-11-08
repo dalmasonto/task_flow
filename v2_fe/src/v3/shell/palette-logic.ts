@@ -4,7 +4,7 @@ import type { TaskflowAgent, TaskflowAgentSession } from "@/api/client"
 import { isAgentOnline } from "@/lib/live-mappers"
 import type { Task } from "@/lib/workspace-view"
 
-import { guessModel, type ActorStatus, type ModelId } from "../components/actor-models"
+import { agentModelId, type ActorStatus, type ModelId } from "../components/actor-models"
 
 export type PaletteAgent = { id: number; name: string; model: ModelId | null; status: ActorStatus; detail: string }
 
@@ -18,7 +18,7 @@ export function paletteAgents(agents: TaskflowAgent[], sessions: TaskflowAgentSe
       return {
         id: a.id,
         name: a.display_name,
-        model: guessModel(a.runtime) ?? guessModel(a.display_name),
+        model: agentModelId(a),
         status: (live ? "running" : "offline") as ActorStatus,
         detail: live ? "Online now" : a.last_seen_at ? "Offline" : "Never connected",
       }

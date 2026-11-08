@@ -56,3 +56,13 @@ export function initialsOf(name: string): string {
   )
 }
 
+
+const PROVIDER_LOGO: Record<string, ModelId> = { anthropic: "claude", openai: "openai", google: "gemini" }
+
+/// The logo for an agent row (#1078): its stated model first, then its stated
+/// provider, then a guess from the runtime and the name.
+export function agentModelId(agent: { model?: string | null; provider?: string | null; runtime?: string | null; display_name?: string | null } | null | undefined): ModelId | null {
+  if (!agent) return null
+  const byProvider = agent.provider ? (PROVIDER_LOGO[agent.provider] ?? null) : null
+  return guessModel(agent.model) ?? byProvider ?? guessModel(agent.runtime) ?? guessModel(agent.display_name)
+}

@@ -3,7 +3,7 @@ import type { TaskflowAgent, TaskflowAgentSession, TaskflowTask } from "@/api/cl
 import { AGENT_CAPABILITIES } from "@/lib/agent-scopes"
 import { isAgentOnline } from "@/lib/live-mappers"
 
-import { guessModel, type ModelId } from "../components/actor-models"
+import { agentModelId, type ModelId } from "../components/actor-models"
 
 export type AgentState = "live" | "idle" | "offline"
 
@@ -30,7 +30,7 @@ export function agentRows(agents: TaskflowAgent[], sessions: TaskflowAgentSessio
       return {
         id: a.id,
         name: a.display_name,
-        model: guessModel(a.runtime) ?? guessModel(a.display_name),
+        model: agentModelId(a),
         state: (online ? (t ? "live" : "idle") : "offline") as AgentState,
         task: t ? { id: t.id, title: t.title } : null,
         lastSeen: seen || null,
