@@ -36,7 +36,6 @@ use umbral_rest::{Action, Identity, ResourceConfig, RestPlugin, ScopeDecision};
 /// The server-managed / access-granting tables are NOT here — they are locked
 /// read-only via [`READ_ONLY_PROJECT_SCOPED_TABLES`].
 const PROJECT_SCOPED_TABLES: &[&str] = &[
-    "taskflow_project_api_endpoint",
     "taskflow_task",
     "taskflow_task_relation",
     "taskflow_task_activity",
@@ -78,6 +77,11 @@ const PROJECT_SCOPED_TABLES: &[&str] = &[
 /// The frontend only ever `.list()`s these tables (see `v2_fe/src/lib/
 /// taskflow-api.ts`), so read-only is a no-op for the app and closes the hole.
 const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
+    // #1137: any member could add an environment or flip `is_default` /
+    // `health`, and agents test against the default, so a viewer could point
+    // them at a URL they control. No client writes it today; owner/admin
+    // handlers come with group 11's settings pages.
+    "taskflow_project_api_endpoint",
     "taskflow_project_member",
     "taskflow_agent_credential",
     "taskflow_agent_session",
@@ -280,8 +284,15 @@ pub fn channel_scope(column: &'static str) -> impl Fn(Option<Identity>) -> Scope
 /// caller isn't an active member of — so an auto-REST-created project was an
 /// orphan invisible to its own creator. Projects are now created only through the
 /// authorized `POST /api/taskflow/projects` endpoint, which atomically creates
-/// the project and an active owner membership. Update stays — the frontend
-/// edits projects via PATCH, still governed by the `scope_async` row scope.
+/// the project and an active owner membership.
+///
+/// `update` is stripped too (#1137): the scope admits every active member, so
+/// a viewer could rename or archive the project, repoint
+/// `default_api_base_url`, or set `github_linked_by` to the owner and
+/// `github_repo` to any repo (the next publish then spent the owner's GitHub
+/// token there). Settings go through the owner/admin
+/// `PATCH /api/taskflow/projects/{project}` (an allowlist); `github_*` only
+/// through the GitHub routes.
 ///
 /// `delete` is stripped too: the scope admits every ACTIVE member, so any
 /// developer or viewer could DELETE the whole project (and, by cascade, all of
@@ -290,7 +301,7 @@ pub fn channel_scope(column: &'static str) -> impl Fn(Option<Identity>) -> Scope
 pub fn project_resource() -> ResourceConfig {
     ResourceConfig::new("taskflow_project")
         .scope_async(project_scope("id"))
-        .views([Action::List, Action::Retrieve, Action::Update])
+        .views([Action::List, Action::Retrieve])
 }
 
 /// Per-user settings — READ-ONLY over REST, owner-scoped.

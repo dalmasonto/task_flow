@@ -1242,7 +1242,8 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
         }),
     )
     .await;
-    assert_eq!(pstatus, 200, "project PATCH: {pbody}");
+    // #1137: project settings aren't REST-writable at all any more.
+    assert_eq!(pstatus, 405, "project PATCH must be refused: {pbody}");
     let project = TaskflowProject::objects()
         .filter(taskflow_project::ID.eq(seed.project_p))
         .first()
@@ -1499,4 +1500,30 @@ async fn members_list_credentials_and_invites_without_their_secrets() {
     let raw = invites.to_string();
     assert!(raw.contains("someone@example.test"), "the row still lists: {raw}");
     assert!(!raw.contains("invite-token-must-not-leak") && !raw.contains("\"invite_token\""), "{raw}");
+}
+
+/// #1137: a member can't change project settings or API environments over
+/// auto-REST (it used to be any member, viewers included).
+#[tokio::test]
+async fn members_cannot_write_project_settings_or_environments_over_rest() {
+    let (_, seed) = app().await;
+    let (s, body) = patch_as(
+        seed.alice,
+        &format!("/api/taskflow_project/{}", seed.project_p),
+        serde_json::json!({ "github_auto_mirror": false, "github_repo": "evil/repo" }),
+    )
+    .await;
+    assert_eq!(s, 405, "{body}");
+    let project = TaskflowProject::objects().filter(taskflow_project::ID.eq(seed.project_p)).first().await.unwrap().unwrap();
+    assert!(project.github_repo.is_none());
+    let (s, body) = post_as(
+        seed.alice,
+        "/api/taskflow_project_api_endpoint/",
+        serde_json::json!({ "project": seed.project_p, "label": "evil", "base_url": "https://evil.example", "environment": "prod", "is_default": true }),
+    )
+    .await;
+    assert_eq!(s, 405, "{body}");
+    // Reads still work.
+    let (s, _) = get_as(seed.alice, false, "/api/taskflow_project_api_endpoint/").await;
+    assert_eq!(s, 200);
 }

@@ -25,7 +25,11 @@ pub fn router() -> Router {
         .route("/api/taskflow/me/profile", get(crate::account::get_profile).patch(crate::account::patch_profile))
         // Delete a project — owner-only (or superuser). Auto-REST delete on
         // `taskflow_project` is stripped because it let any member do this.
-        .route("/api/taskflow/projects/{project}", delete(views::delete_project))
+        // #1137: owner/admin settings edit (auto-REST is read-only for projects).
+        .route(
+            "/api/taskflow/projects/{project}",
+            delete(views::delete_project).patch(crate::project_edit::patch_project),
+        )
         // #616: the instructions every agent in the project reads via whoami.
         // Owner/admin (or superuser) only; auto-REST cannot write the column.
         .route(

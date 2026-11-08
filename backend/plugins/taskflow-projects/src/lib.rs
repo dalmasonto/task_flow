@@ -23,6 +23,10 @@ pub mod instructions;
 pub mod scope;
 // #1134: the caller's own profile (me/profile).
 pub mod account;
+// post_save for column updates (the one copy; gaps6 #27).
+pub mod emit;
+// #1137: the only writer of project settings.
+pub mod project_edit;
 pub mod urls;
 pub mod views;
 
