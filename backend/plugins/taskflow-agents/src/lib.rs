@@ -21,12 +21,14 @@
 
 pub mod agent_auth;
 pub mod answers;
+pub mod channel_state;
 pub mod claims;
 pub mod wakeups;
 pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.
 pub mod posting;
 pub mod questions;
+pub mod review_requests;
 // #605: credential scopes — the allowlist and the canonical stored form.
 pub mod scopes;
 pub mod signals;
@@ -60,9 +62,11 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAnswer>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageClaim>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowWakeRule>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowChannelState>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelReadCursor>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentTerminalFrame>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskReview>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowReviewRequest>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentPrompt>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTerminalInput>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowRealtimeTicket>(),
@@ -96,6 +100,8 @@ impl Plugin for TaskflowAgentsPlugin {
         block_on_ready(signals::install_room_marker_guard(&ctx.pool))?;
         // #1095: at most one open claim per message, enforced by the database.
         block_on_ready(claims::install_claim_guard(&ctx.pool))?;
+        // #1098: at most one open review request per (task, reviewer).
+        block_on_ready(review_requests::install_review_request_guard(&ctx.pool))?;
         // #1113: wake-up rules — event hooks and the time sweep.
         wakeups::register();
 

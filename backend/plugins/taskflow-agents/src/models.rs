@@ -830,3 +830,91 @@ pub struct TaskflowWakeRule {
     #[umbral(noedit)]
     pub updated_at: Option<DateTime<Utc>>,
 }
+
+/// #1096: a channel's pinned "current state" (#886 §3.3) — what the room is
+/// working on right now, so the next agent reads that first instead of hunting
+/// for the newest HANDOFF post. Append-only: the newest row is current, the
+/// rest is history. Written ONLY by `channel_state.rs`; auto-REST serves it
+/// read-only and CHANNEL-scoped (a DM's state is the DM's).
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["channel", "id"]])]
+pub struct TaskflowChannelState {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(string, max_length = 8000, widget = "textarea")]
+    pub body_markdown: String,
+    #[umbral(choices, default = "user")]
+    pub author_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub author_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub author_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub author_label: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #1098: where a review request stands. `open` until the named reviewer's
+/// `report_review` answers it, or the requester cancels it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowReviewRequestStatus {
+    Open,
+    Answered,
+    Cancelled,
+}
+
+/// #1098 (#886 §3.9): "please review this task" — who asks, who is named, and
+/// what to look at. Answered by the named reviewer's review on the task
+/// (`apply_review` links the resulting `TaskflowTaskReview`). Written ONLY by
+/// `review_requests.rs`; auto-REST serves it read-only and project-scoped.
+///
+/// `reviewer_key` ("user:1" / "agent:5") exists for the partial unique index:
+/// at most one OPEN request per (task, reviewer). The nullable FK pair could not
+/// carry it, because SQL treats NULLs as distinct in a unique index.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["task", "status"], ["project", "status"]])]
+pub struct TaskflowReviewRequest {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub task: ForeignKey<TaskflowTask>,
+    #[umbral(choices, default = "user")]
+    pub requester_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub requester_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub requester_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub requester_label: String,
+    #[umbral(choices, default = "agent")]
+    pub reviewer_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub reviewer_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub reviewer_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub reviewer_label: String,
+    #[umbral(string, max_length = 40)]
+    pub reviewer_key: String,
+    /// A diff or PR link (http/https only).
+    #[umbral(string, max_length = 500)]
+    pub link: Option<String>,
+    /// What to look at.
+    #[umbral(string, max_length = 4000, widget = "textarea")]
+    pub focus_markdown: Option<String>,
+    #[umbral(choices, default = "open")]
+    pub status: TaskflowReviewRequestStatus,
+    /// The review that answered it.
+    #[umbral(on_delete = "set_null")]
+    pub review: Option<ForeignKey<TaskflowTaskReview>>,
+    pub closed_at: Option<DateTime<Utc>>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}

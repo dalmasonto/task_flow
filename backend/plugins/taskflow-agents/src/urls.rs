@@ -148,6 +148,15 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/claims",
             get(crate::claims::channel_claims),
         )
+        // #1096: a channel's pinned current state (append-only history).
+        .route(
+            "/api/taskflow/channels/{channel}/state",
+            get(crate::channel_state::get_as_user).post(crate::channel_state::set_as_user),
+        )
+        .route(
+            "/api/taskflow/agents/channels/{channel}/state",
+            get(crate::channel_state::get_as_agent).post(crate::channel_state::set_as_agent),
+        )
         // #1113: wake-up rules. Humans (members) manage any rule in the project;
         // agents manage the rules they made or that wake them.
         .route(
@@ -276,6 +285,28 @@ pub fn router() -> Router {
         .route(
             "/api/taskflow/tasks/{task}/agent/review",
             post(views::review_task_as_agent),
+        )
+        // #1098: review requests — ask a named reviewer, cancel, and the
+        // agent's own list. Answered by that reviewer's review above.
+        .route(
+            "/api/taskflow/tasks/{task}/review-requests",
+            post(crate::review_requests::request_review),
+        )
+        .route(
+            "/api/taskflow/tasks/{task}/agent/review-requests",
+            post(crate::review_requests::agent_request_review),
+        )
+        .route(
+            "/api/taskflow/review-requests/{id}/cancel",
+            post(crate::review_requests::cancel_request),
+        )
+        .route(
+            "/api/taskflow/agents/review-requests/{id}/cancel",
+            post(crate::review_requests::agent_cancel_request),
+        )
+        .route(
+            "/api/taskflow/agents/review-requests",
+            get(crate::review_requests::agent_list),
         )
         // Agent activity ingest (agent-authed via `RequireAgent`). An agent posts
         // its real actions — single or batch — as `TaskflowTaskActivity` stamped

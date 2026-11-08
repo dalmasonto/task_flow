@@ -33,6 +33,11 @@ pub fn router() -> Router {
             "/api/taskflow/toolbox/{project}/entry/{name}/status",
             post(views::set_status),
         )
+        // #1097: "still true" — moves checked_at only.
+        .route(
+            "/api/taskflow/toolbox/{project}/entry/{name}/recheck",
+            post(views::recheck),
+        )
         // Agent surface: the MCP tools. `{name}` is a path segment, so an
         // entry name is the lookup key everywhere.
         .route("/api/taskflow/agents/toolbox", get(views::agent_list))
@@ -55,6 +60,10 @@ pub fn router() -> Router {
         .route(
             "/api/taskflow/agents/toolbox/{name}/vet",
             post(views::agent_vet),
+        )
+        .route(
+            "/api/taskflow/agents/toolbox/{name}/recheck",
+            post(views::agent_recheck),
         )
         .route(
             "/api/taskflow/agents/toolbox/{name}/versions/{version}",

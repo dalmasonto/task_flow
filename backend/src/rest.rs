@@ -88,6 +88,10 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // REST create could forge a reviewer or a decision. Read-only so the frontend
     // can still `.list()` them, scoped by project.
     "taskflow_task_review",
+    // #1098: review requests are written ONLY by the request/cancel endpoints
+    // and answered by the review endpoints, which derive both parties
+    // server-side. A client write could forge a requester or an answer.
+    "taskflow_review_request",
     // Prompts are written ONLY by the trusted agent endpoints (the hook reports
     // one, the agent clears it) and answered through
     // `POST /api/taskflow/prompts/{prompt}/answer`, which records who answered.
@@ -153,6 +157,8 @@ const CHANNEL_SCOPED_TABLES: &[&str] = &[
     "taskflow_message_answer",
     // #1095: a claim belongs to its message's conversation, like answers.
     "taskflow_message_claim",
+    // #1096: a channel's pinned current state belongs to that channel.
+    "taskflow_channel_state",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the
@@ -406,6 +412,8 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // #1095: claims are written ONLY by the claim endpoints, which derive
             // the claimer and enforce one open claim per message.
             "taskflow_message_claim" => config.views([Action::List, Action::Retrieve]),
+            // #1096: written ONLY by the channel-state endpoints.
+            "taskflow_channel_state" => config.views([Action::List, Action::Retrieve]),
             _ => config,
         }
     });
