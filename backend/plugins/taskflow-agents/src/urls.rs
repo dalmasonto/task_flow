@@ -118,6 +118,9 @@ pub fn router() -> Router {
         .route("/api/taskflow/agents/channels/{channel}/typing", post(crate::typing::agent_typing))
         // #5988 item 8: "Ran N tools while writing this".
         .route("/api/taskflow/channels/{channel}/tools", get(crate::tools::for_messages))
+        // #5988 item 7: delivery receipts (the agent reports; people read).
+        .route("/api/taskflow/agents/messages/{message}/delivered", post(crate::receipts::report))
+        .route("/api/taskflow/channels/{channel}/deliveries", get(crate::receipts::for_messages))
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))

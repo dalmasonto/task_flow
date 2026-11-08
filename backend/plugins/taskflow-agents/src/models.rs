@@ -1069,3 +1069,26 @@ pub struct TaskflowThreadFollow {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// #5988 item 7: an agent's MCP typed this message into its tmux pane
+/// ("Delivered to Claude (main), pane %4"). Its own table, never a column on
+/// the message (#107). One per (message, agent); written only by the agent
+/// itself (`receipts.rs`), from its key.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["message", "agent"]], indexes = [["channel", "message", "id"]])]
+pub struct TaskflowMessageDelivery {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: ForeignKey<TaskflowAgent>,
+    /// The tmux pane id as tmux names it (`%4`), at most 32 characters.
+    #[umbral(string, max_length = 32)]
+    pub pane: Option<String>,
+    #[umbral(noedit, auto_now_add)]
+    pub delivered_at: Option<DateTime<Utc>>,
+}

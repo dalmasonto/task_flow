@@ -165,6 +165,42 @@ describe("message delivery without a pane", () => {
     expect(markRead).toEqual([{ channel: 3, id: 56 }]);
   });
 
+  it("#5988: reports a delivery receipt with the pane after typing it in", async () => {
+    const { client, markRead } = fakeClient();
+    const delivered: Array<{ id: number; pane: string | null }> = [];
+    (client as unknown as { markDelivered: (id: number, pane: string | null) => Promise<unknown> }).markDelivered = async (id, pane) => {
+      delivered.push({ id, pane });
+      return {};
+    };
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onMessage({ id: 56 } as never);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(markRead).toEqual([{ channel: 3, id: 56 }]);
+    expect(delivered).toEqual([{ id: 56, pane: "%4" }]);
+  });
+
+  it("#5988: no receipt without a pane, and a failing receipt never breaks delivery", async () => {
+    const quiet = fakeClient();
+    const calls: number[] = [];
+    (quiet.client as unknown as { markDelivered: (id: number) => Promise<unknown> }).markDelivered = async (id) => {
+      calls.push(id);
+      return {};
+    };
+    startAgentRuntime(contextFor(null, quiet.client), () => {});
+    await events.options?.onMessage({ id: 56 } as never);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual([]);
+
+    const failing = fakeClient();
+    (failing.client as unknown as { markDelivered: () => Promise<unknown> }).markDelivered = async () => {
+      throw new Error("404");
+    };
+    startAgentRuntime(contextFor("%4", failing.client), () => {});
+    await events.options?.onMessage({ id: 56 } as never);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(failing.markRead).toEqual([{ channel: 3, id: 56 }]);
+  });
+
   it("leaves a pane-less reconnect's backlog unread, so nothing is lost", async () => {
     const { client, markRead } = fakeClient();
     startAgentRuntime(contextFor(null, client), () => {});
