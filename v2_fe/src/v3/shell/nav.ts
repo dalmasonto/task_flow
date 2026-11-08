@@ -8,6 +8,7 @@ import {
   CalendarClockIcon,
   CheckCheckIcon,
   GaugeIcon,
+  HouseIcon,
   ImageIcon,
   InboxIcon,
   KanbanIcon,
@@ -45,6 +46,7 @@ export const V3_NAV: NavGroup[] = [
   {
     title: "Work",
     items: [
+      { id: "home", label: "Home", icon: HouseIcon, href: "/v3/home" },
       { id: "inbox", label: "Inbox", icon: InboxIcon, href: "/v3/inbox" },
       {
         id: "overview",

@@ -4,14 +4,13 @@
 /// Pages are ported one by one (stage 2). Until a page lands, its route shows an
 /// honest "not ported yet" state with a link to the v2 page that still works.
 import { lazy, Suspense, type ComponentType } from "react"
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom"
+import { Link, Route, Routes, useLocation } from "react-router-dom"
 import { ArrowUpRightIcon, HammerIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Toaster } from "@/components/ui/sonner"
 
-import { V3_HOME } from "./routes"
 import { activeNavId, V2_FALLBACK, V3_NAV } from "./shell/nav"
 import { useIsDark } from "./shell/theme-action"
 import { V3Shell } from "./shell/V3Shell"
@@ -78,6 +77,7 @@ const DecisionsPage = lazyNamed(() => import("./decisions/DecisionsPage"), "Deci
 const DailyUpdatePage = lazyNamed(() => import("./daily/DailyUpdatePage"), "DailyUpdatePage")
 const OverviewPage = lazyNamed(() => import("./overview/OverviewPage"), "OverviewPage")
 const UsagePage = lazyNamed(() => import("./usage/UsagePage"), "UsagePage")
+const HomePage = lazyNamed(() => import("./home/HomePage"), "HomePage")
 
 export function V3App() {
   useV3Document()
@@ -88,7 +88,7 @@ export function V3App() {
       <Toaster theme={dark ? "dark" : "light"} position="bottom-right" />
       <Suspense fallback={<PageLoading />}>
         <Routes>
-          <Route path="/v3/home" element={<Navigate to={V3_HOME} replace />} />
+          <Route path="/v3/home" element={<HomePage />} />
           {/* Onboarding (group 2): full-screen, no app shell, as in the design. */}
           <Route path="/v3/onboarding" element={<OnboardingTeamPage />} />
           <Route path="/v3/onboarding/project" element={<OnboardingProjectPage />} />
