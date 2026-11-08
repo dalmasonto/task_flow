@@ -153,6 +153,15 @@ impl TestApp {
         }
     }
 
+    /// #1135: any method with a raw body and content type (multipart uploads).
+    pub async fn raw_as(&self, user_id: i64, method: http::Method, path: &str, content_type: HeaderValue, body: Vec<u8>) -> TestResponse {
+        self.set_auth(user_id);
+        self.client.set_default_header(http::header::CONTENT_TYPE, content_type);
+        TestResponse {
+            inner: self.client.send(method, path, axum::body::Body::from(body)).await,
+        }
+    }
+
     /// A DELETE with no body.
     pub async fn delete_as(&self, user_id: i64, path: &str) -> TestResponse {
         self.set_auth(user_id);

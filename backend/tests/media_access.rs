@@ -526,3 +526,41 @@ async fn orphan_keys_are_superuser_only() {
         "superuser bypasses the mapping requirement"
     );
 }
+
+/// #1135: a user's CURRENT avatar is readable by any signed-in caller (people
+/// and agents, any project); a replaced key, and anonymous callers, are not.
+#[tokio::test]
+async fn current_avatars_are_readable_by_any_signed_in_caller() {
+    use taskflow_projects::models::{TaskflowTheme, TaskflowUserSettings, taskflow_user_settings};
+    boot_app().await;
+    let (owner, _) = user_with_headers(false).await;
+    let key = format!("{}-avatar.webp", seq());
+    TaskflowUserSettings::objects()
+        .create(TaskflowUserSettings {
+            id: 0,
+            user: ForeignKey::new(owner),
+            theme: TaskflowTheme::System,
+            email_notifications: true,
+            default_project: None,
+            full_name: None,
+            timezone: None,
+            avatar: Some(key.clone()),
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .unwrap();
+
+    let (_stranger, stranger_headers) = user_with_headers(false).await;
+    assert!(media_access_allowed(&stranger_headers, &key).await, "a signed-in stranger sees the photo");
+    let elsewhere = seed_project().await;
+    let (_agent, agent_headers) = agent_with_headers(elsewhere).await;
+    assert!(media_access_allowed(&agent_headers, &key).await, "an agent sees the photo");
+    assert!(!media_access_allowed(&HeaderMap::new(), &key).await, "anonymous never");
+
+    // Replaced: the old key stops matching.
+    let mut v = serde_json::Map::new();
+    v.insert("avatar".into(), serde_json::json!(format!("{}-avatar.webp", seq())));
+    TaskflowUserSettings::objects().filter(taskflow_user_settings::USER.eq(owner)).update_values(v).await.unwrap();
+    assert!(!media_access_allowed(&stranger_headers, &key).await, "a replaced photo is an orphan");
+}

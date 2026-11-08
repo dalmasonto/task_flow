@@ -734,6 +734,7 @@ async fn load_or_create_settings(user_id: i64) -> Result<TaskflowUserSettings, S
             default_project: None,
             full_name: None,
             timezone: None,
+            avatar: None,
             created_at: None,
             updated_at: None,
         })

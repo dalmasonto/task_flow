@@ -2,7 +2,7 @@
 //!
 //! | Route | |
 //! |---|---|
-//! | `GET /api/taskflow/me/profile` | `{id, username, email, full_name, email_verified}` |
+//! | `GET /api/taskflow/me/profile` | `{id, username, email, full_name, email_verified, avatar_url}` |
 //! | `PATCH /api/taskflow/me/profile` | `{full_name?, username?, email?, current_password?}` |
 //!
 //! Caller-only: there's no id to name another user. Username and email follow
@@ -128,20 +128,15 @@ async fn load_me(user: i64) -> Result<AuthUser, ApiError> {
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "error": "unauthorized" }))))
 }
 
-async fn full_name_of(user: i64) -> Result<Option<String>, ApiError> {
-    Ok(TaskflowUserSettings::objects()
-        .filter(taskflow_user_settings::USER.eq(user))
-        .first()
-        .await
-        .map_err(internal)?
-        .and_then(|s| s.full_name))
-}
-
-async fn profile_json(user: i64) -> Result<Value, ApiError> {
+pub(crate) async fn profile_json(user: i64) -> Result<Value, ApiError> {
     let me = load_me(user).await?;
+    let settings = TaskflowUserSettings::objects().filter(taskflow_user_settings::USER.eq(user)).first().await.map_err(internal)?;
+    let (full_name, avatar) = settings.map_or((None, None), |s| (s.full_name, s.avatar));
     Ok(json!({
         "id": me.id, "username": me.username, "email": me.email,
-        "full_name": full_name_of(user).await?, "email_verified": me.email_verified_at.is_some(),
+        "full_name": full_name, "email_verified": me.email_verified_at.is_some(),
+        // Always present (null when none): the FE detects avatar support by the key.
+        "avatar_url": crate::avatar::url_for(avatar.as_deref()),
     }))
 }
 
