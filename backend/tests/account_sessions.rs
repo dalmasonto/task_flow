@@ -152,3 +152,4 @@ async fn the_cookie_session_making_the_request_is_current() {
     c.post_json("/api/taskflow/me/sessions/revoke-others", &json!({})).await;
     assert!(umbral_sessions::read_session(&session).await.unwrap().is_some());
 }
+

@@ -63,6 +63,51 @@ pub fn validate_email(email: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Per-user password-guess budget (#1134 review): `MAX` attempts in
+/// `WINDOW`, then 429 until the window passes. In memory, per process:
+/// it slows a stolen session guessing the password; it's not a lockout.
+pub mod password_budget {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    pub const MAX: u32 = 5;
+    pub const WINDOW: Duration = Duration::from_secs(15 * 60);
+
+    fn map() -> &'static Mutex<HashMap<(&'static str, i64), (Instant, u32)>> {
+        static M: OnceLock<Mutex<HashMap<(&'static str, i64), (Instant, u32)>>> = OnceLock::new();
+        M.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    /// May `user` try again under `scope`? Doesn't count anything.
+    pub fn allowed(scope: &'static str, user: i64) -> bool {
+        let mut m = map().lock().expect("password budget");
+        match m.get(&(scope, user)) {
+            Some((start, _)) if start.elapsed() >= WINDOW => {
+                m.remove(&(scope, user));
+                true
+            }
+            Some((_, n)) => *n < MAX,
+            None => true,
+        }
+    }
+
+    /// Count one attempt (a failure, or any attempt where the caller can't
+    /// tell). Returns whether it was still within the budget.
+    pub fn spend(scope: &'static str, user: i64) -> bool {
+        let mut m = map().lock().expect("password budget");
+        if m.len() > 100_000 {
+            m.retain(|_, (start, _)| start.elapsed() < WINDOW);
+        }
+        let e = m.entry((scope, user)).or_insert((Instant::now(), 0));
+        if e.0.elapsed() >= WINDOW {
+            *e = (Instant::now(), 0);
+        }
+        e.1 += 1;
+        e.1 <= MAX
+    }
+}
+
 type ApiError = (StatusCode, Json<Value>);
 
 fn err(status: StatusCode, code: &str, field: &str, detail: &str) -> ApiError {
@@ -150,11 +195,15 @@ pub async fn patch_profile(RequireAuth(user): RequireAuth<i64>, Json(input): Jso
             validate_email(&email).map_err(|why| err(StatusCode::BAD_REQUEST, "invalid_email", "email", &format!("Email: {why}.")))?;
             // Password before the duplicate check, so an unauthenticated
             // session can't use this route to probe which emails exist.
+            if !password_budget::allowed("profile_email", user) {
+                return Err(err(StatusCode::TOO_MANY_REQUESTS, "too_many_attempts", "current_password", "Too many wrong passwords. Try again in 15 minutes."));
+            }
             let ok = match input.current_password.as_deref() {
                 Some(pw) if !pw.is_empty() => umbral_auth::verify_password_async(pw, &me.password_hash).await.unwrap_or(false),
                 _ => false,
             };
             if !ok {
+                password_budget::spend("profile_email", user);
                 return Err(err(StatusCode::FORBIDDEN, "password_required", "current_password", "Enter your current password to change your email."));
             }
             if taken_by_other("email", &email, user).await? {

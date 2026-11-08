@@ -88,3 +88,21 @@ async fn the_timezone_is_validated_and_saves_dont_clobber() {
     assert!(r["timezone"].is_null());
     assert_eq!(r["theme"], "dark");
 }
+
+/// #1134 review: wrong current passwords on an email change are throttled.
+#[tokio::test]
+async fn wrong_passwords_on_an_email_change_are_throttled() {
+    let app = TestApp::new().await;
+    let me = app.create_user().await;
+    set_password(me.id, "the-right-password").await;
+    for _ in 0..taskflow_projects::account::password_budget::MAX {
+        let r = app.patch_body_as(me.id, PROFILE, json!({ "email": "x@example.test", "current_password": "nope" })).await;
+        assert_eq!(r.status(), 403);
+    }
+    // Now even the right one waits.
+    let r = app.patch_body_as(me.id, PROFILE, json!({ "email": "x@example.test", "current_password": "the-right-password" })).await;
+    assert_eq!(r.status(), 429, "{}", r.text());
+    assert_eq!(r.json()["error"], "too_many_attempts");
+    // Name changes need no password and aren't blocked.
+    assert_eq!(app.patch_body_as(me.id, PROFILE, json!({ "full_name": "Still Me" })).await.status(), 200);
+}

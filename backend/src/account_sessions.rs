@@ -17,7 +17,9 @@
 //! `last_used_at` (umbral-auth). Sessions carry `created_at` and `expires_at`
 //! only, so their `last_used_at` is null. The user agent of each token is
 //! recorded by `RecordTokenAgent` (at most once every 10 minutes per token,
-//! truncated to 300 characters). No IP address is stored.
+//! truncated to 300 characters), best-effort: its cache is hard-capped and
+//! its database lookups are budgeted, so unauthenticated traffic can't grow
+//! either. No IP address is stored.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -39,6 +41,15 @@ use umbral_auth::token::auth_token;
 use umbral_auth::{AuthToken, RequireAuth};
 
 const RECORD_EVERY: StdDuration = StdDuration::from_secs(600);
+/// Hard cap on the "recently recorded" cache; full means clear it. The key is
+/// a hash of the bearer as sent, before it's validated, so unauthenticated
+/// traffic can add entries: the cap keeps that bounded (#1134 review).
+const CACHE_CAP: usize = 10_000;
+/// At most this many token lookups per second, process-wide. A real token
+/// needs one per `RECORD_EVERY`; a spray of fake keys can't turn into
+/// unbounded extra database queries. Over budget, recording is skipped
+/// (the user agent is best-effort).
+const LOOKUPS_PER_SEC: u32 = 20;
 const MAX_UA_CHARS: usize = 300;
 
 /// The user agent a bearer token was last used from.
@@ -188,6 +199,24 @@ pub async fn revoke_others(RequireAuth(user): RequireAuth<i64>, headers: HeaderM
     Ok(Json(json!({ "revoked_tokens": revoked_tokens, "revoked_sessions": revoked_sessions })).into_response())
 }
 
+/// The lookup budget: (window start, lookups spent in it).
+fn budget() -> &'static Mutex<(Instant, u32)> {
+    static B: OnceLock<Mutex<(Instant, u32)>> = OnceLock::new();
+    B.get_or_init(|| Mutex::new((Instant::now(), 0)))
+}
+
+fn spend_lookup() -> bool {
+    let mut b = budget().lock().expect("lookup budget");
+    if b.0.elapsed() >= StdDuration::from_secs(1) {
+        *b = (Instant::now(), 0);
+    }
+    if b.1 >= LOOKUPS_PER_SEC {
+        return false;
+    }
+    b.1 += 1;
+    true
+}
+
 /// key-hash -> when this process last recorded that token's user agent.
 fn recorded() -> &'static Mutex<HashMap<String, Instant>> {
     static R: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
@@ -218,6 +247,11 @@ async fn record(key: String, user_agent: String) {
 /// `RECORD_EVERY` per token per process, off the request path.
 pub struct RecordTokenAgent;
 
+/// For tests: the cache size (it must stay bounded).
+pub fn recorded_len() -> usize {
+    recorded().lock().expect("recorded user agents").len()
+}
+
 #[umbral::async_trait]
 impl Middleware for RecordTokenAgent {
     fn name(&self) -> &'static str {
@@ -230,12 +264,14 @@ impl Middleware for RecordTokenAgent {
             return Ok(req);
         };
         let cache_key = hex(&Sha256::digest(key.as_bytes()));
+        // Marked as recorded only when a lookup is actually spent, so a real
+        // token skipped while the budget is spent retries on its next request.
         let due = {
             let mut map = recorded().lock().expect("recorded user agents");
-            let due = map.get(&cache_key).is_none_or(|at| at.elapsed() >= RECORD_EVERY);
+            let due = map.get(&cache_key).is_none_or(|at| at.elapsed() >= RECORD_EVERY) && spend_lookup();
             if due {
-                if map.len() > 50_000 {
-                    map.retain(|_, at| at.elapsed() < RECORD_EVERY);
+                if map.len() >= CACHE_CAP {
+                    map.clear(); // bounded: a spray of fake keys can't grow it
                 }
                 map.insert(cache_key, Instant::now());
             }
