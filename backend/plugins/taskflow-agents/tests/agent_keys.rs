@@ -241,3 +241,26 @@ async fn rotating_after_every_key_is_revoked_keeps_denials() {
     assert_eq!(r.json().await["revoked"], 0);
     assert_eq!(active_keys(agent).await[0].denied_scopes.as_deref(), Some(r#"["tasks:write"]"#), "the denial was dropped");
 }
+
+/// Review nit: an owner re-linking with `scopes` alone keeps the denials.
+#[tokio::test(flavor = "multi_thread")]
+async fn re_linking_with_scopes_alone_keeps_denials() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let owner = app.create_user().await;
+    make_project_member_with_role(project, owner, TaskflowProjectRole::Owner).await;
+    let (agent, _) = mint(&app, owner, project, "Half").await;
+    let cred = active_keys(agent).await.remove(0).id;
+    let mut v = serde_json::Map::new();
+    v.insert("denied_scopes".into(), json!(r#"["tasks:write"]"#));
+    TaskflowAgentCredential::objects().filter(taskflow_agent_credential::ID.eq(cred)).update_values(v).await.unwrap();
+
+    let r = app
+        .post_as(owner, "/api/taskflow/agents/link", json!({ "project": project, "display_name": "Half", "profile": "Half", "scopes": ["agents:manage"] }))
+        .await;
+    assert_eq!(r.status(), 200, "{}", r.text());
+    let now = active_keys(agent).await;
+    assert_eq!(now.len(), 1);
+    assert_eq!(now[0].denied_scopes.as_deref(), Some(r#"["tasks:write"]"#), "scopes alone dropped the denials");
+    assert!(now[0].scopes.as_deref().unwrap_or("").contains("agents:manage"), "the explicit scopes weren't applied");
+}

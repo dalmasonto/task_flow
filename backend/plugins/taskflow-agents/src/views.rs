@@ -1622,10 +1622,17 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
                 if locked.is_none() {
                     return Err::<_, Box<dyn std::error::Error + Send + Sync>>(crate::keys::ROTATION_BUSY.into());
                 }
-                if tx_scopes.is_none() && tx_denied.is_none() {
+                // Each half separately: an owner who sends `scopes` alone
+                // keeps the earlier denials (review nit). Changing denials is
+                // the scopes PATCH's job.
+                if tx_scopes.is_none() || tx_denied.is_none() {
                     if let Some(newest) = crate::keys::newest_credential_on(tx, agent.id).await? {
-                        tx_scopes = newest.scopes;
-                        tx_denied = newest.denied_scopes;
+                        if tx_scopes.is_none() {
+                            tx_scopes = newest.scopes;
+                        }
+                        if tx_denied.is_none() {
+                            tx_denied = newest.denied_scopes;
+                        }
                     }
                 }
                 revoked = crate::keys::revoke_active_on(tx, agent.id).await?;
