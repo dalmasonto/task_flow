@@ -21,6 +21,13 @@
 //!   never by "some write to the user row happened" (#1101 review: a failed
 //!   change followed by a login's `last_login` write must revoke nothing).
 //!
+//! - **Guess limit** (#6048): change-password shares the per-user password
+//!   budget (`password_budget::SCOPE`, 5 wrong per 15 min, then 429
+//!   `too_many_attempts`) with every other password check. The middleware
+//!   re-checks `current_password` from the JSON or form body itself, so only
+//!   a wrong one counts, for cookie and bearer callers alike; a body it can't
+//!   read is refused (400 `invalid`) before umbral-auth's handler sees it.
+//!
 //! The sweep runs at boot, then every 10 minutes, so a token can outlive its
 //! limit by at most that. A deleted token is a 401 on its next request, and
 //! the frontend signs out on 401.
@@ -39,6 +46,7 @@ use umbral::middleware::Middleware;
 use umbral::plugin::{AppContext, Plugin, PluginError};
 use umbral_auth::token::auth_token;
 use umbral_auth::{AuthToken, AuthUser, auth_user};
+use taskflow_projects::account::password_budget as budget;
 
 pub const DEFAULT_IDLE_DAYS: i64 = 14;
 pub const DEFAULT_MAX_AGE_DAYS: i64 = 30;
@@ -110,8 +118,8 @@ fn is_change_password(req: &Request) -> bool {
     req.method() == Method::POST && matches!(req.uri().path(), "/api/auth/change-password" | "/api/auth/change-password/")
 }
 
-fn bearer(req: &Request) -> Option<String> {
-    let v = req.headers().get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+fn bearer(headers: &axum::http::HeaderMap) -> Option<String> {
+    let v = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
     let (scheme, key) = v.split_once(' ')?;
     scheme.eq_ignore_ascii_case("bearer").then(|| key.trim().to_string()).filter(|k| !k.is_empty())
 }
@@ -161,32 +169,83 @@ impl Middleware for ChangePasswordRevokesOthers {
         if !is_change_password(&req) {
             return Ok(req);
         }
-        // Cookie-session changes carry no bearer and are left as umbral-auth
-        // has them (the app always sends a bearer; gap filed upstream).
-        if let Some(key) = bearer(&req) {
+        // Anyone umbral-auth would accept: a cookie session or a bearer.
+        // Unauthenticated → pass through; umbral answers 401.
+        let Some(user) = umbral_auth::resolve_identity(req.headers()).await.and_then(|i| i.user_id.parse::<i64>().ok()) else {
+            return Ok(req);
+        };
+        // #6048: umbral-auth's change-password has no throttle, so a stolen
+        // session could guess the current password. It shares the one
+        // per-user budget every password check uses, and only a WRONG
+        // password spends it, so this re-checks `current_password` here.
+        if !budget::allowed(budget::SCOPE, user) {
+            return Err(too_many_attempts());
+        }
+        let (parts, body) = req.into_parts();
+        // Fail closed (#6050): a body this can't read never reaches the
+        // handler, so no content type or size slips past the count.
+        let bytes = axum::body::to_bytes(body, MAX_BODY).await.map_err(|_| unreadable())?;
+        let content_type = parts
+            .headers
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let Some(current) = current_password(&content_type, &bytes) else {
+            return Err(unreadable());
+        };
+        let right = match password_hash(user).await {
+            Some(hash) => umbral_auth::verify_password_async(&current, &hash).await.unwrap_or(false),
+            None => false,
+        };
+        if !right {
+            budget::spend(budget::SCOPE, user);
+        } else if let Some(key) = bearer(&parts.headers) {
+            // Revoke-others bookkeeping: bearer changes only (gap filed).
             if let Ok(Some(token)) = AuthToken::lookup(&key).await {
-                let user = token.user_id.id();
-                // #1134 review: umbral-auth's change-password has no throttle,
-                // so a stolen session could guess the current password. This
-                // can't see whether an attempt failed, so it counts every
-                // attempt: 5 per 15 minutes per user, far above real use.
-                if !taskflow_projects::account::password_budget::spend("change_password", user) {
-                    return Err((
-                        axum::http::StatusCode::TOO_MANY_REQUESTS,
-                        axum::Json(serde_json::json!({ "error": "too_many_attempts", "detail": "Too many password change attempts. Try again in 15 minutes." })),
-                    )
-                        .into_response());
-                }
-                if let Some(hash_before) = password_hash(user).await {
-                    pending()
-                        .lock()
-                        .expect("pending password changes")
-                        .insert(user, Pending { token: token.id, hash_before, at: Instant::now() });
+                if token.user_id.id() == user {
+                    if let Some(hash_before) = password_hash(user).await {
+                        pending()
+                            .lock()
+                            .expect("pending password changes")
+                            .insert(user, Pending { token: token.id, hash_before, at: Instant::now() });
+                    }
                 }
             }
         }
-        Ok(req)
+        Ok(Request::from_parts(parts, axum::body::Body::from(bytes)))
     }
+}
+
+/// The change-password body is tiny; anything bigger isn't one.
+const MAX_BODY: usize = 64 * 1024;
+
+/// `current_password` from a JSON or form body (umbral-auth's
+/// `JsonOrForm` takes both); `None` for anything else.
+fn current_password(content_type: &str, bytes: &[u8]) -> Option<String> {
+    if content_type.starts_with("application/json") {
+        serde_json::from_slice::<serde_json::Value>(bytes).ok()?.get("current_password")?.as_str().map(str::to_string)
+    } else if content_type.starts_with("application/x-www-form-urlencoded") {
+        serde_urlencoded::from_bytes::<HashMap<String, String>>(bytes).ok()?.remove("current_password")
+    } else {
+        None
+    }
+}
+
+fn too_many_attempts() -> Response {
+    (
+        axum::http::StatusCode::TOO_MANY_REQUESTS,
+        axum::Json(serde_json::json!({ "error": "too_many_attempts", "detail": "Too many wrong passwords. Try again in 15 minutes." })),
+    )
+        .into_response()
+}
+
+fn unreadable() -> Response {
+    (
+        axum::http::StatusCode::BAD_REQUEST,
+        axum::Json(serde_json::json!({ "error": "invalid", "detail": "Send {current_password, new_password} as JSON or a form." })),
+    )
+        .into_response()
 }
 
 /// The plugin: the sweep (boot + every 10 minutes), the password-write hook,

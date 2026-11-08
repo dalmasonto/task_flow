@@ -86,6 +86,47 @@ impl GithubApi for ReqwestGithubApi {
             s => Err(GithubError::Other(format!("github {s}"))),
         }
     }
+
+    async fn current_login(&self, token: &str) -> Result<String, GithubError> {
+        let resp = self
+            .client
+            .get("https://api.github.com/user")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "taskflow")
+            .send()
+            .await
+            .map_err(|_| GithubError::Other("github /user request failed".into()))?;
+        match resp.status().as_u16() {
+            200 => {
+                let v: serde_json::Value = resp.json().await.map_err(|_| GithubError::Other("github /user body".into()))?;
+                v["login"].as_str().map(str::to_string).ok_or_else(|| GithubError::Other("github /user had no login".into()))
+            }
+            401 => Err(GithubError::Unauthorized),
+            s => Err(GithubError::Other(format!("github {s}"))),
+        }
+    }
+
+    async fn revoke_token(&self, token: &str) -> Result<(), GithubError> {
+        // The app credentials umbral-oauth's GitHubProvider::from_env reads.
+        let (Ok(id), Ok(secret)) = (std::env::var("UMBRAL_OAUTH_GITHUB_CLIENT_ID"), std::env::var("UMBRAL_OAUTH_GITHUB_CLIENT_SECRET")) else {
+            return Ok(());
+        };
+        let resp = self
+            .client
+            .delete(format!("https://api.github.com/applications/{id}/token"))
+            .basic_auth(id, Some(secret))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "taskflow")
+            .json(&json!({ "access_token": token }))
+            .send()
+            .await
+            .map_err(|_| GithubError::Other("github revoke request failed".into()))?;
+        match resp.status().as_u16() {
+            204 | 404 => Ok(()),
+            s => Err(GithubError::Other(format!("github {s}"))),
+        }
+    }
 }
 
 /// Reads a user's linked GitHub token from their `SocialAccount`. An expired
@@ -108,5 +149,24 @@ impl GithubTokenSource for OauthTokenSource {
             }
         }
         account.access_token.reveal().ok()
+    }
+
+    async fn account_for_user(&self, user_id: i64) -> Option<crate::tokens::AccountInfo> {
+        use umbral_oauth::models::{SocialAccount, social_account};
+        let account = SocialAccount::objects()
+            .filter(social_account::USER.eq(user_id) & social_account::PROVIDER.eq("github"))
+            .first()
+            .await
+            .ok()??;
+        Some(crate::tokens::AccountInfo { connected_at: Some(account.created_at), scopes: account.scopes, account_id: account.provider_uid })
+    }
+
+    async fn disconnect(&self, user_id: i64) -> Option<String> {
+        use umbral_oauth::models::{SocialAccount, social_account};
+        let filter = social_account::USER.eq(user_id) & social_account::PROVIDER.eq("github");
+        let account = SocialAccount::objects().filter(filter.clone()).first().await.ok()??;
+        let token = account.access_token.reveal().ok();
+        SocialAccount::objects().filter(filter).delete().await.ok()?;
+        token.or(Some(String::new()))
     }
 }

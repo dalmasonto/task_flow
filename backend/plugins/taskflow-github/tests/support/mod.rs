@@ -104,6 +104,7 @@ pub struct TestApp {
     client: TestClient,
     bearer: Mutex<HashMap<i64, String>>,
     api: Arc<FakeGithubApi>,
+    tokens: Arc<FakeTokenSource>,
     primary: Option<TestUser>,
 }
 
@@ -167,13 +168,13 @@ async fn make_superuser() -> (TestUser, String) {
 }
 
 impl TestApp {
-    fn assemble(client: TestClient, api: Arc<FakeGithubApi>, primary: Option<(TestUser, String)>) -> Self {
+    fn assemble(client: TestClient, api: Arc<FakeGithubApi>, tokens: Arc<FakeTokenSource>, primary: Option<(TestUser, String)>) -> Self {
         let mut bearer = HashMap::new();
         let primary_user = primary.map(|(u, tok)| {
             bearer.insert(u.id, tok);
             u
         });
-        Self { client, bearer: Mutex::new(bearer), api, primary: primary_user }
+        Self { client, bearer: Mutex::new(bearer), api, tokens, primary: primary_user }
     }
 
     /// No GitHub tokens for anyone. Used by pure-ORM / pref tests that never
@@ -181,9 +182,10 @@ impl TestApp {
     pub async fn new() -> Self {
         boot_plugins().await;
         let api = Arc::new(FakeGithubApi::returning(FAKE_ISSUE_NUMBER, "https://github.com/x/y/issues/7"));
-        let deps = GithubDeps { api: api.clone(), tokens: Arc::new(FakeTokenSource::new()) };
+        let tokens = Arc::new(FakeTokenSource::new());
+        let deps = GithubDeps { api: api.clone(), tokens: tokens.clone() };
         let client = TestClient::new(taskflow_github::urls::router(deps));
-        Self::assemble(client, api, None)
+        Self::assemble(client, api, tokens, None)
     }
 
     /// A primary "owner" user whose linked GitHub token is `gh_token`.
@@ -213,9 +215,10 @@ impl TestApp {
             FAKE_ISSUE_NUMBER,
             "https://github.com/acme/widgets/issues/7",
         ));
-        let deps = GithubDeps { api: api.clone(), tokens: Arc::new(tokens) };
+        let tokens = Arc::new(tokens);
+        let deps = GithubDeps { api: api.clone(), tokens: tokens.clone() };
         let client = TestClient::new(taskflow_github::urls::router(deps));
-        Self::assemble(client, api, Some((user, bearer)))
+        Self::assemble(client, api, tokens, Some((user, bearer)))
     }
 
     /// The primary user (owner in publish tests).
@@ -257,6 +260,32 @@ impl TestApp {
     pub async fn get_as(&self, user_id: i64, path: &str) -> TestResponse {
         self.set_auth(user_id);
         TestResponse { inner: self.client.get(path).await }
+    }
+
+    /// DELETE with a JSON body (#1135 disconnect).
+    pub async fn delete_body_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
+        self.set_auth(user_id);
+        self.client.set_default_header(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let res = self.client.send(http::Method::DELETE, path, axum::body::Body::from(body.to_string())).await;
+        TestResponse { inner: res }
+    }
+
+    /// Re-link a user to another GitHub token (OAuth again, no disconnect).
+    pub fn relink(&self, user_id: i64, gh_token: &str) {
+        self.tokens.link(user_id, gh_token);
+    }
+
+    /// The fake GitHub API, to script `current_login` and read revokes.
+    pub fn fake_api(&self) -> &FakeGithubApi {
+        &self.api
+    }
+
+    /// Give a user a real password (#1135: disconnect needs it).
+    pub async fn set_password(&self, user_id: i64, password: &str) {
+        let hash = umbral_auth::hash_password(password).expect("hash");
+        let mut v = serde_json::Map::new();
+        v.insert("password_hash".into(), serde_json::json!(hash));
+        AuthUser::objects().filter(umbral_auth::auth_user::ID.eq(user_id)).update_values(v).await.expect("set password");
     }
 
     pub fn api_created_issues(&self) -> Vec<(String, String, taskflow_github::api::NewIssue)> {

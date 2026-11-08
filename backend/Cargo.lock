@@ -3712,6 +3712,7 @@ dependencies = [
  "taskflow-projects",
  "taskflow-tasks",
  "tokio",
+ "tracing",
  "umbral",
  "umbral-auth",
  "umbral-oauth",
