@@ -78,7 +78,8 @@ pub fn kind_str(k: TaskflowTaskStatus) -> String {
 /// The columns of a project that has never edited them: one per kind, keyed by
 /// the kind's name; archived hidden.
 pub fn defaults() -> Vec<Column> {
-    let labels = ["Not started", "In progress", "Paused", "Blocked", "Partially done", "Done", "Archived"];
+    // "In review" for partial_done: what the v3 UI and the Workflow page call it.
+    let labels = ["Not started", "In progress", "Paused", "Blocked", "In review", "Done", "Archived"];
     KINDS
         .iter()
         .zip(labels)
@@ -187,13 +188,50 @@ pub async fn reconcile(task_id: i64) {
     }
 }
 
-/// Boot: give every task without a column its home. Idempotent; after the
-/// first boot it finds nothing.
+/// Boot: give every task without a column its home, in bulk.
+///
+/// One `update_values` per (kind) for the projects on the default columns, and
+/// one per (project, kind) for those with their own. Nothing is emitted on
+/// purpose: after the migration this is every task on the server, and a
+/// realtime `post_save` per row would make every open tab refetch every task
+/// (#5929). Nobody's view changes anyway, because a task without a column
+/// already counts toward the first column of its kind. Idempotent: after the
+/// first boot it matches nothing.
 pub async fn backfill() {
-    let Ok(rows) = TaskflowTask::objects().filter(taskflow_task::STATUS_COLUMN.is_null()).fetch().await else { return };
-    for t in rows {
-        reconcile(t.id).await;
+    if let Err(e) = backfill_inner().await {
+        tracing::warn!(error = %e, "status_column backfill failed; tasks are re-homed on their next write");
     }
+}
+
+async fn backfill_inner() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let rows = TaskflowProjectStatus::objects().fetch().await?;
+    let mut custom: std::collections::BTreeMap<i64, Vec<TaskflowProjectStatus>> = Default::default();
+    for r in rows {
+        custom.entry(r.project.id()).or_default().push(r);
+    }
+    let custom_ids: Vec<i64> = custom.keys().copied().collect();
+    for kind in KINDS {
+        let mut v = serde_json::Map::new();
+        v.insert("status_column".into(), json!(kind));
+        let mut q = taskflow_task::STATUS_COLUMN.is_null() & taskflow_task::STATUS.eq(kind);
+        if !custom_ids.is_empty() {
+            q = q & Q::not(taskflow_task::PROJECT.in_(&custom_ids));
+        }
+        TaskflowTask::objects().filter(q).update_values(v).await?;
+    }
+    for (project, rows) in custom {
+        let (cols, _) = columns_of(rows);
+        for kind in KINDS {
+            let Some(home) = first_of(&cols, kind) else { continue };
+            let mut v = serde_json::Map::new();
+            v.insert("status_column".into(), json!(home));
+            TaskflowTask::objects()
+                .filter(taskflow_task::PROJECT.eq(project) & taskflow_task::STATUS_COLUMN.is_null() & taskflow_task::STATUS.eq(kind))
+                .update_values(v)
+                .await?;
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------- handlers

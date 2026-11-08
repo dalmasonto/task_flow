@@ -194,3 +194,48 @@ async fn editing_columns_never_changes_a_status() {
     assert_eq!(task.status, TaskflowTaskStatus::InProgress);
     assert_eq!(task.status_column.as_deref(), Some("wip"));
 }
+
+/// Raw SQL, so no signal fires and nothing re-homes the row behind our back.
+async fn raw(sql: &str) {
+    let pool = umbral::db::pool_dispatched();
+    let r: Result<(), sqlx::Error> = match &pool {
+        umbral::db::DbPool::Sqlite(p) => sqlx::query(sql).execute(p).await.map(|_| ()),
+        umbral::db::DbPool::Postgres(p) => sqlx::query(sql).execute(p).await.map(|_| ()),
+    };
+    r.expect("raw sql");
+}
+
+/// #5929: the boot backfill fills every NULL column in bulk (defaults and
+/// custom projects alike) and emits no per-row `post_save`, which realtime
+/// would fan out to every open tab as one refetch per task.
+#[tokio::test]
+async fn backfill_fills_in_bulk_without_realtime_events() {
+    use std::sync::Mutex;
+    static SAVED: Mutex<Vec<i64>> = Mutex::new(Vec::new());
+    umbral::signals::subscribe_async("post_save:taskflow_task", |p| {
+        let id = p["instance"]["id"].as_i64();
+        async move {
+            if let Some(id) = id {
+                SAVED.lock().unwrap().push(id);
+            }
+        }
+    });
+    let app = TestApp::new().await;
+    let plain = seed_project().await;
+    let custom = seed_project().await;
+    let owner = app.create_user().await;
+    seed_member_as(custom, owner, TaskflowProjectRole::Owner).await;
+    app.put_as(owner, &url(custom), json!({ "columns": with_review(), "base_version": 0 })).await;
+    let a = seed_task(plain).await;
+    let b = seed_task(custom).await;
+    set_status(b, TaskflowTaskStatus::InProgress).await;
+    raw(&format!("UPDATE taskflow_task SET status_column = NULL WHERE id IN ({a}, {b})")).await;
+    assert_eq!(column_of(a).await, None);
+
+    SAVED.lock().unwrap().clear();
+    taskflow_tasks::statuses::backfill().await;
+    assert_eq!(column_of(a).await.as_deref(), Some("not_started"));
+    assert_eq!(column_of(b).await.as_deref(), Some("doing"));
+    let saved = SAVED.lock().unwrap().clone();
+    assert!(!saved.contains(&a) && !saved.contains(&b), "backfill emitted post_save for {saved:?}");
+}
