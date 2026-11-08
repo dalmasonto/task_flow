@@ -139,7 +139,7 @@ export function startAgentRuntime(
       const replyParent = message.reply_to != null ? await readParent(message.channel, message.reply_to) : null;
       await paneQueue(() =>
         notifyPane(
-          formatIncoming(message, message.attachments ?? [], profile.agentId, edited, replyParent),
+          formatIncoming(message, message.attachments ?? [], profile.agentId, edited, replyParent, humanUserId),
           pane,
           true,
         ),
@@ -227,10 +227,15 @@ export function startAgentRuntime(
   // and keeps the old baseline, so the change is still caught next time. It
   // never throws out of the onConnected barrier.
   const instructionsWatcher = createInstructionsWatcher();
+  // #1127: who this agent's human is, from the server (ids only). Refreshed on
+  // every (re)connect, so a re-link is picked up. Unknown until then, and on
+  // an older backend: notices stay unmarked rather than mislabelled.
+  let humanUserId: number | null | undefined = undefined;
   const checkInstructions = async () => {
     if (!pane) return;
     try {
       const identity = await client.whoami();
+      if ("linked_by_user" in identity) humanUserId = identity.linked_by_user ?? null;
       if (!instructionsWatcher.observe(identity)) return;
       log("role/project instructions changed — notifying the agent");
       await paneQueue(() => notifyPane(INSTRUCTIONS_UPDATED_NOTICE, pane, true));

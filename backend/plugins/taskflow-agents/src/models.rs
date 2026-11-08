@@ -121,9 +121,12 @@ pub struct TaskflowAgent {
     pub version: Option<String>,
     #[umbral(choices, default = "offline")]
     pub status: TaskflowAgentStatus,
-    #[umbral(on_delete = "set_null")]
+    /// The human who linked this agent. #1127: ACCESS-GRANTING (they may
+    /// drive its terminal and answer its prompts), so `privileged`: auto-REST
+    /// create/update strips it and only the link handler writes it.
+    #[umbral(on_delete = "set_null", privileged)]
     pub linked_by: Option<ForeignKey<AuthUser>>,
-    #[umbral(string, max_length = 160)]
+    #[umbral(privileged, string, max_length = 160)]
     pub linked_user_label: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
     /// #615: the agent's role instructions (markdown), read by the agent through
