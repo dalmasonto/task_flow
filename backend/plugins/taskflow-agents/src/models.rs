@@ -58,6 +58,16 @@ pub enum TaskflowChannelKind {
     Group,
 }
 
+impl TaskflowChannelKind {
+    /// Private to its explicit roster: a DM, or a #42 Group. Every gate that
+    /// lets a non-roster project member (or agent) in must skip these. Before
+    /// this, the write and agent paths only exempted `Direct`, so anyone in the
+    /// project could join, post to and (as an agent) read a private Group.
+    pub fn is_private(self) -> bool {
+        matches!(self, Self::Direct | Self::Group)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
 pub enum TaskflowChannelMemberKind {
