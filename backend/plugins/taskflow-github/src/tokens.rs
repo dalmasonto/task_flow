@@ -16,6 +16,9 @@ use async_trait::async_trait;
 pub struct AccountInfo {
     pub connected_at: Option<chrono::DateTime<chrono::Utc>>,
     pub scopes: String,
+    /// GitHub's stable account id (`provider_uid`): the login cache is keyed
+    /// by it, so linking a different account never shows the old login.
+    pub account_id: String,
 }
 
 #[async_trait]
@@ -25,7 +28,7 @@ pub trait GithubTokenSource: Send + Sync {
 
     /// #1135: when the link was made and its scopes; `None` if unlinked.
     async fn account_for_user(&self, user_id: i64) -> Option<AccountInfo> {
-        self.token_for_user(user_id).await.map(|_| AccountInfo { connected_at: None, scopes: String::new() })
+        self.token_for_user(user_id).await.map(|_| AccountInfo { connected_at: None, scopes: String::new(), account_id: String::new() })
     }
 
     /// #1135: remove the link; answers the token it held (to revoke at
@@ -92,8 +95,12 @@ impl FakeTokenSource {
         Self { tokens: std::sync::Mutex::new(HashMap::new()) }
     }
     pub fn with(self, user_id: i64, token: &str) -> Self {
-        self.tokens.lock().unwrap().insert(user_id, token.to_string());
+        self.link(user_id, token);
         self
+    }
+    /// Link (or re-link) a user to a token after construction.
+    pub fn link(&self, user_id: i64, token: &str) {
+        self.tokens.lock().unwrap().insert(user_id, token.to_string());
     }
 }
 impl Default for FakeTokenSource {
@@ -107,7 +114,9 @@ impl GithubTokenSource for FakeTokenSource {
         self.tokens.lock().unwrap().get(&user_id).cloned()
     }
     async fn account_for_user(&self, user_id: i64) -> Option<AccountInfo> {
-        self.tokens.lock().unwrap().contains_key(&user_id).then(|| AccountInfo { connected_at: None, scopes: "repo".into() })
+        // The fake's account id follows the token, so re-linking with another
+        // token reads as another GitHub account.
+        self.tokens.lock().unwrap().get(&user_id).map(|t| AccountInfo { connected_at: None, scopes: "repo".into(), account_id: format!("uid-{t}") })
     }
     async fn disconnect(&self, user_id: i64) -> Option<String> {
         self.tokens.lock().unwrap().remove(&user_id)

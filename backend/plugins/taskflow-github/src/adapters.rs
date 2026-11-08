@@ -158,7 +158,7 @@ impl GithubTokenSource for OauthTokenSource {
             .first()
             .await
             .ok()??;
-        Some(crate::tokens::AccountInfo { connected_at: Some(account.created_at), scopes: account.scopes })
+        Some(crate::tokens::AccountInfo { connected_at: Some(account.created_at), scopes: account.scopes, account_id: account.provider_uid })
     }
 
     async fn disconnect(&self, user_id: i64) -> Option<String> {
