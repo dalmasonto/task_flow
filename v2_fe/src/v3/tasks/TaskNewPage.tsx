@@ -121,7 +121,7 @@ export function TaskNewPage() {
         assigned_user: who?.kind === "user" ? who.id : null,
         assigned_agent_id: who?.kind === "agent" ? who.id : null,
         assignee_label: who?.name ?? null,
-        due_at: due ? new Date(`${due}T23:59:00`).toISOString() : null,
+        due_at: due ? new Date(`${due}T23:59:59`).toISOString() : null,
         github_repo: repo === "none" ? null : repo,
       })
       // Follow-ups on a task that now exists: a failure says so, never "not created".

@@ -230,6 +230,7 @@ export function RelationsSection({ task, live, projectId, titleOf }: { task: Tas
     const other = parseTaskNumber(target)
     if (other == null) return setError("Type a task number, like #720.")
     if (other === id) return setError("A task can't link to itself.")
+    if (groups[kind].some((r) => r.other === other)) return setError(`Already linked: ${RELATION_LABEL[kind].toLowerCase()} #${other}.`)
     setBusy(true)
     setError(null)
     try {

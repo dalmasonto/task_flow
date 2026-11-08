@@ -284,7 +284,7 @@ export function TaskPage() {
                   onChange={(e) => {
                     const v = e.target.value
                     // End of that local day, so "due Nov 3" isn't overdue at 00:01.
-                    void save({ due_at: v ? new Date(`${v}T23:59:00`).toISOString() : null }, "due date").catch(() => undefined)
+                    void save({ due_at: v ? new Date(`${v}T23:59:59`).toISOString() : null }, "due date").catch(() => undefined)
                   }}
                 />
               </Prop>
