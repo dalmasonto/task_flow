@@ -40,7 +40,7 @@ use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
 };
 use taskflow_tasks::models::{
-    TaskflowTask, TaskflowTaskActivity, TaskflowTaskRelation, TaskflowTaskSession,
+    TaskflowProjectStatus, TaskflowTask, TaskflowTaskActivity, TaskflowTaskRelation, TaskflowTaskSession,
 };
 use umbral_realtime::{Expose, PresenceSpec, RealtimePlugin};
 
@@ -89,6 +89,8 @@ const PROMPTS: &str = "prompts";
 const PROJECT_MEMBERS: &str = "project_members";
 const PROJECT_INVITES: &str = "project_invites";
 const API_ENDPOINTS: &str = "api_endpoints";
+/// #5907 1b: a project's board columns. Id-only; the board refetches the list.
+const PROJECT_STATUSES: &str = "project_statuses";
 const DESIGN_FILES: &str = "design_files";
 const DESIGN_COMMENTS: &str = "design_comments";
 const DESIGN_LAYOUT: &str = "design_layout";
@@ -283,6 +285,9 @@ pub fn plugin() -> RealtimePlugin {
         }))
         .expose::<TaskflowProjectApiEndpoint>(Expose::to_group_with(|ev| {
             group_for(API_ENDPOINTS, &ev.instance)
+        }))
+        .expose::<TaskflowProjectStatus>(Expose::to_group_with(|ev| {
+            group_for(PROJECT_STATUSES, &ev.instance)
         }))
         .expose::<TaskflowTask>(Expose::to_group_with(|ev| group_for(TASKS, &ev.instance)))
         .expose::<TaskflowTaskRelation>(Expose::to_group_with(|ev| {
@@ -546,6 +551,7 @@ const ALL_SUFFIXES: &[&str] = &[
     PROJECT_MEMBERS,
     PROJECT_INVITES,
     API_ENDPOINTS,
+    PROJECT_STATUSES,
     DESIGN_FILES,
     DESIGN_COMMENTS,
     DESIGN_LAYOUT,

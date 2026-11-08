@@ -372,6 +372,7 @@ async fn seed_task_inner(project: i64, title: &str, issue_number: Option<i64>) -
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create task")

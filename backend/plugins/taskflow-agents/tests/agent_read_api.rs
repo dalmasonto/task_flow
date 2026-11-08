@@ -76,6 +76,7 @@ async fn seed_task(
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create task")

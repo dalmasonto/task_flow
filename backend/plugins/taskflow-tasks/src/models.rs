@@ -60,7 +60,9 @@ pub enum TaskflowSessionState {
 /// ordered newest-first — so the index leads with the filter pair and ends in
 /// the sort key.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
-#[umbral(indexes = [["project", "status", "id"]])]
+///
+/// #5907 1b: and a column board pages on `{project, status_column}` the same way.
+#[umbral(indexes = [["project", "status", "id"], ["project", "status_column", "id"]])]
 pub struct TaskflowTask {
     pub id: i64,
     #[umbral(on_delete = "cascade")]
@@ -121,10 +123,44 @@ pub struct TaskflowTask {
     /// and both live where each is authored.
     #[umbral(string, max_length = 200)]
     pub github_repo: Option<String>,
+    /// #5907 1b: the board column (a `TaskflowProjectStatus.key`, or a kind
+    /// name while the project uses the default columns). `status` stays the
+    /// truth: `crate::statuses` keeps this pointing at a column of the task's
+    /// status kind, falling back to the first one, on every write path. To
+    /// move a task to a column, write both `status` and `status_column`.
+    #[umbral(string, max_length = 40)]
+    pub status_column: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]
     pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// #5907 1b: one board column of a project. Each maps onto one built-in
+/// status `kind`, so everything keyed on status (agents, reviews, timers,
+/// stats) is unchanged. No rows means the default columns
+/// (`crate::statuses::defaults`). `version` is the list's version, the same
+/// on every row, bumped by each replace.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["project", "key"]])]
+pub struct TaskflowProjectStatus {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(string, max_length = 40)]
+    pub key: String,
+    #[umbral(string, max_length = 40)]
+    pub label: String,
+    #[umbral(choices)]
+    pub kind: TaskflowTaskStatus,
+    #[umbral(default = "0")]
+    pub position: i64,
+    #[umbral(string, max_length = 7)]
+    pub color: Option<String>,
+    #[umbral(default = "false")]
+    pub hidden: bool,
+    #[umbral(default = "1")]
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]

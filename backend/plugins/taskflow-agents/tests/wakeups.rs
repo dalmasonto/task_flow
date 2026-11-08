@@ -255,6 +255,7 @@ async fn a_task_unblocked_rule_fires_on_both_save_paths() {
         review_gate: None, estimate_minutes: None, operator_user: None, operator_agent_id: None, created_by_agent_id: None,
         assignee_label: None, due_at: None, closed_at: None, github_issue_number: None, github_issue_url: None, github_repo: None,
         created_at: None, updated_at: None,
+        status_column: None,
     };
     let free = TaskflowTask::objects().create(task("free", TaskflowTaskStatus::NotStarted)).await.unwrap();
     let res = app.post_as_agent(&key, "/api/taskflow/agents/wakeups", json!({ "trigger": "task_unblocked", "task": free.id, "note": "go" })).await;
