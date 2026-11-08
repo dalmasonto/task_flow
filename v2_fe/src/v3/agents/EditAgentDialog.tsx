@@ -62,7 +62,7 @@ export function EditAgentDialog({ agent, open, onOpenChange }: { agent: Taskflow
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit {agent.display_name}</DialogTitle>
-          <DialogDescription>Renaming keeps its key, tasks and history. Names are unique in the project, so nobody mistakes one agent for another.</DialogDescription>
+          <DialogDescription>Renaming keeps its key, tasks and history. Names are unique in the project, among agents and people, so nobody mistakes one for another.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           <Field>

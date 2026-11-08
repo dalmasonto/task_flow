@@ -1449,7 +1449,7 @@ export async function updateAgentProfile(agentId: number, input: AgentProfileInp
     const data = (await response.clone().json().catch(() => null)) as { error?: string; detail?: string } | null
     throw new Error(
       data?.error === "name_taken"
-        ? "Another agent in this project already has that name."
+        ? "Someone in this project, an agent or a person, already goes by that name. Pick another."
         : data?.error === "changed"
           ? "Someone renamed it meanwhile. Reload and try again."
           : data?.error === "invalid" && data.detail
