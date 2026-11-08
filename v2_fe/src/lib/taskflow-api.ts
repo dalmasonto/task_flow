@@ -1818,6 +1818,22 @@ async function channelAdminError(response: Response, fallback: string): Promise<
   return new Error(`${fallback} (${response.status}).`)
 }
 
+/// #5951: add an agent of the room's project to its roster (same who-rule as
+/// adding a person). Idempotent: an agent already in the room comes back as is.
+export async function addChannelAgent(channelId: number, agentId: number): Promise<TaskflowAgentChannelMember> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/channels/${channelId}/members`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ agent: agentId }),
+  })
+  if (!response.ok) {
+    if (response.status === 400) throw new Error("That agent isn't active in this project.")
+    throw await channelAdminError(response, "Couldn't add the agent")
+  }
+  return readJson(response)
+}
+
 export async function updateChannel(channelId: number, patch: { title?: string; topic?: string | null }): Promise<TaskflowAgentChannel> {
   const response = await fetch(`${API_BASE_URL}/api/taskflow/channels/${channelId}`, {
     method: "PATCH",

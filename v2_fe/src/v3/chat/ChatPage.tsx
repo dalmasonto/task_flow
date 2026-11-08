@@ -19,7 +19,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { chatIdToSlug, findPublicRoomChat, isAgentOnline, liveId, mapLiveTerminalSessions, slugToChatId, upsertById } from "@/lib/live-mappers"
-import { createTaskflowChannel } from "@/lib/taskflow-api"
+import { createTaskflowChannel, setChannelArchived } from "@/lib/taskflow-api"
 import { subscribeThreadEvents } from "@/lib/thread-bus"
 import { fetchThreadSummaries } from "@/lib/threads-api"
 import type { Project } from "@/lib/workspace-view"
@@ -64,8 +64,10 @@ function RowIcon({ row, agentRuntime }: { row: ChatRow; agentRuntime?: string | 
   )
 }
 
-function ChatList({ rows, activeId, onOpen, runtimeOf, onNew, candidates, onCreate }: {
+function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidates, onCreate }: {
   rows: ChatRow[]
+  /// Archived rooms' chat ids: listed last, folded away (#5951).
+  archived: Set<string>
   activeId: string | null
   onOpen: (id: string) => void
   runtimeOf: (title: string) => string | null
@@ -77,7 +79,10 @@ function ChatList({ rows, activeId, onOpen, runtimeOf, onNew, candidates, onCrea
   const [filter, setFilter] = useState<ChatFilter>("all")
   const [query, setQuery] = useState("")
   const [newOpen, setNewOpen] = useState(onNew)
-  const shown = filterChats(rows, filter, query)
+  const all = filterChats(rows, filter, query)
+  const shown = all.filter((r) => !archived.has(r.id))
+  const archivedRows = all.filter((r) => archived.has(r.id))
+  const [showArchived, setShowArchived] = useState(false)
   const rooms = shown.filter((r) => r.kind === "room")
   const dms = shown.filter((r) => r.kind !== "room").sort(byRecent)
   const unread = rows.filter((r) => r.unread > 0).length
@@ -154,7 +159,16 @@ function ChatList({ rows, activeId, onOpen, runtimeOf, onNew, candidates, onCrea
             <ul className="space-y-0.5">{dms.map(item)}</ul>
           </>
         ) : null}
-        {!rooms.length && !dms.length ? <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">{query || filter !== "all" ? "Nothing matches." : "No conversations yet."}</p> : null}
+        {archivedRows.length ? (
+          <>
+            <button type="button" onClick={() => setShowArchived((v) => !v)} aria-expanded={showArchived} className="mt-3 flex w-full items-center gap-1 px-2.5 pb-1.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground">
+              Archived <span className="tabular-nums">{archivedRows.length}</span>
+              <span className="ml-auto">{showArchived ? "Hide" : "Show"}</span>
+            </button>
+            {showArchived ? <ul className="space-y-0.5 opacity-80">{archivedRows.map(item)}</ul> : null}
+          </>
+        ) : null}
+        {!rooms.length && !dms.length && !archivedRows.length ? <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">{query || filter !== "all" ? "Nothing matches." : "No conversations yet."}</p> : null}
       </div>
     </div>
   )
@@ -328,6 +342,15 @@ function ChatWorkspace({ project }: { project: Project }) {
     const role = roleByName.get(from)
     return role === "owner" ? "Owner" : role === "admin" ? "Admin" : null
   }
+  const unarchive = async () => {
+    if (!channel) return
+    try {
+      const c = await setChannelArchived(channel.id, false)
+      applyLiveUpdate((w) => ({ ...w, agentChannels: upsertById(w.agentChannels, c) }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't unarchive the room.")
+    }
+  }
   const jumpTo = (id: number) => {
     const el = pane.current?.querySelector<HTMLElement>(`[data-message-id="${id}"]`)
     if (!el) {
@@ -351,6 +374,11 @@ function ChatWorkspace({ project }: { project: Project }) {
         terminals={terminals}
         messages={messages}
         addCandidates={outletContext.addMemberCandidates}
+        agentCandidates={
+          members && !channel.is_public && channel.kind !== "project"
+            ? (live?.agents ?? []).filter((x) => x.status !== "revoked" && !members.agents.some((m) => m.id === x.id)).map((x) => ({ id: x.id, name: x.display_name }))
+            : []
+        }
         onAddMember={outletContext.onAddMember}
         onJumpToMessage={(id) => {
           setPanelSheet(false)
@@ -359,6 +387,8 @@ function ChatWorkspace({ project }: { project: Project }) {
         onClose={isWide ? undefined : () => setPanelSheet(false)}
       />
     ) : null
+
+  const archivedIds = useMemo(() => new Set((live?.agentChannels ?? []).filter((c) => c.archived).map((c) => `live:channel:${c.id}`)), [live?.agentChannels])
 
   const showList = !isBelowLg || !slug
   const showConvo = (!isBelowLg || !!slug) && !(isBelowLg && threadOpen)
@@ -371,6 +401,7 @@ function ChatWorkspace({ project }: { project: Project }) {
           <aside className="min-h-0 border-border lg:border-r" aria-label="Conversations">
             <ChatList
               rows={rows}
+              archived={archivedIds}
               activeId={selectedId}
               onOpen={open}
               runtimeOf={runtimeOf}
@@ -402,6 +433,16 @@ function ChatWorkspace({ project }: { project: Project }) {
                   onTogglePanel={togglePanel}
                   onJump={jumpTo}
                 />
+                {channel?.archived ? (
+                  <div className="flex shrink-0 items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 text-sm">
+                    <span className="text-muted-foreground">This room is archived. It&apos;s read-only; nobody can post in it.</span>
+                    {powers?.archive ? (
+                      <Button size="sm" variant="outline" className="ml-auto" onClick={() => void unarchive()}>
+                        Unarchive
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
                 <AgentsConversationView
                   {...outletContext}
                   bare

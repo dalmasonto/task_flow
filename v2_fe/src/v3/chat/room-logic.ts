@@ -3,7 +3,7 @@
 /// (reviewer, #5924); the server still decides.
 import type { TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowProjectMember, TaskflowTask } from "@/api/client"
 
-export type RoomAgent = { id: number; name: string; runtime: string | null; online: boolean; working: { id: number; title: string } | null; lastSeen: string | null }
+export type RoomAgent = { id: number; name: string; runtime: string | null; online: boolean; working: { id: number; title: string } | null; lastSeen: string | null; memberId: number | null }
 export type RoomPerson = { user: number; name: string; role: string | null; memberId: number | null }
 export type RoomMembers = { agents: RoomAgent[]; people: RoomPerson[] }
 
@@ -25,7 +25,8 @@ export function roomMembers(
     .filter((a) => agentIds.has(a.id))
     .map((a) => {
       const task = tasks.find((t) => t.status === "in_progress" && t.assigned_agent_id === a.id)
-      return { id: a.id, name: a.display_name, runtime: a.runtime ?? null, online: isOnline(a.id), working: task ? { id: task.id, title: task.title } : null, lastSeen: a.last_seen_at ?? null }
+      const row = everyone ? undefined : mine.find((r) => r.agent === a.id)
+      return { id: a.id, name: a.display_name, runtime: a.runtime ?? null, online: isOnline(a.id), working: task ? { id: task.id, title: task.title } : null, lastSeen: a.last_seen_at ?? null, memberId: row?.id ?? null }
     })
     .sort((x, y) => Number(y.online) - Number(x.online) || Number(!!y.working) - Number(!!x.working) || x.name.localeCompare(y.name))
   const people: RoomPerson[] = everyone

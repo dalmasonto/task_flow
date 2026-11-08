@@ -20,7 +20,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import type { AgentMessage, AgentTerminalSessionView } from "@/lib/workspace-view"
-import { removeChannelMember, setChannelArchived, updateChannel } from "@/lib/taskflow-api"
+import { addChannelAgent, removeChannelMember, setChannelArchived, updateChannel } from "@/lib/taskflow-api"
 import { upsertById } from "@/lib/live-mappers"
 
 import { ActorAvatar } from "../components/actor-avatar"
@@ -136,6 +136,7 @@ export function RoomPanel({
   terminals,
   messages,
   addCandidates,
+  agentCandidates,
   onAddMember,
   onJumpToMessage,
   onClose,
@@ -148,6 +149,8 @@ export function RoomPanel({
   terminals: AgentTerminalSessionView[]
   messages: AgentMessage[]
   addCandidates: { user: number; name: string }[]
+  /// Agents of the project not yet in the room (#5951).
+  agentCandidates: { id: number; name: string }[]
   onAddMember: (user: number) => Promise<void>
   onJumpToMessage: (id: number) => boolean
   onClose?: () => void
@@ -171,6 +174,16 @@ export function RoomPanel({
       toast.error(e instanceof Error ? e.message : "Couldn't remove them.")
     } finally {
       setBusy(null)
+    }
+  }
+
+  async function addAgent(id: number, name: string) {
+    try {
+      const row = await addChannelAgent(channel.id, id)
+      applyLiveUpdate((w) => ({ ...w, agentChannelMembers: upsertById(w.agentChannelMembers, row) }))
+      toast.success(`${name} joined ${channel.title}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't add the agent.")
     }
   }
 
@@ -219,7 +232,7 @@ export function RoomPanel({
               <p className="mb-1 text-xs font-medium text-muted-foreground">Agents</p>
               <ul className="mb-3 grid gap-0.5">
                 {members.agents.map((a) => (
-                  <li key={a.id} className="flex items-center gap-2 rounded-md px-1 py-1">
+                  <li key={a.id} className="group flex items-center gap-2 rounded-md px-1 py-1">
                     <ActorAvatar model={guessModel(a.runtime) ?? guessModel(a.name)} name={a.name} status={a.online ? (a.working ? "running" : "idle") : "offline"} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
                     {a.online && a.working ? (
@@ -231,6 +244,19 @@ export function RoomPanel({
                     ) : (
                       <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(a.lastSeen, now) ?? "Offline"}</span>
                     )}
+                    {powers.removeMembers && a.memberId != null ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        aria-label={`Remove ${a.name}`}
+                        title={`Remove ${a.name}`}
+                        disabled={busy === `rm:${a.memberId}`}
+                        onClick={() => void remove(a.memberId!, a.name, false)}
+                      >
+                        <UserMinusIcon />
+                      </Button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -271,16 +297,22 @@ export function RoomPanel({
             </>
           ) : null}
           {powers.addMembers ? (
-            addCandidates.length ? (
+            addCandidates.length || agentCandidates.length ? (
               <DropdownMenu>
                 <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="mt-3 w-full" />}>
                   <PlusIcon />
-                  Add a person
+                  Add a person or agent
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-56">
-                  <DropdownMenuLabel>Add to {channel.title}</DropdownMenuLabel>
+                  {agentCandidates.length ? <DropdownMenuLabel>Agents</DropdownMenuLabel> : null}
+                  {agentCandidates.map((a) => (
+                    <DropdownMenuItem key={`a${a.id}`} onClick={() => void addAgent(a.id, a.name)}>
+                      {a.name}
+                    </DropdownMenuItem>
+                  ))}
+                  {addCandidates.length ? <DropdownMenuLabel>People</DropdownMenuLabel> : null}
                   {addCandidates.map((c) => (
-                    <DropdownMenuItem key={c.user} onClick={() => void onAddMember(c.user).catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Couldn't add them."))}>
+                    <DropdownMenuItem key={`u${c.user}`} onClick={() => void onAddMember(c.user).catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Couldn't add them."))}>
                       {c.name}
                     </DropdownMenuItem>
                   ))}
