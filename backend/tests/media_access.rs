@@ -342,7 +342,7 @@ async fn seed_task_attachment(project: i64) -> String {
             id: 0,
             project: ForeignKey::new(project),
             title: format!("Task {n}"),
-            description_markdown: String::new(),
+            description_markdown: None,
             notes_markdown: None,
             status: TaskflowTaskStatus::NotStarted,
             priority: TaskflowTaskPriority::Normal,

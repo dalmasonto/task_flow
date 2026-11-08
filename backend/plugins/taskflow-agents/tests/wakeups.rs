@@ -243,7 +243,7 @@ async fn a_task_unblocked_rule_fires_on_both_save_paths() {
     let (key, _, _) = mint_agent(&app, project, "Waiter").await;
     go_live(&app, &key).await;
     let task = |title: &str, status: TaskflowTaskStatus| TaskflowTask {
-        id: 0, project: ForeignKey::new(project), title: title.into(), description_markdown: String::new(), notes_markdown: None,
+        id: 0, project: ForeignKey::new(project), title: title.into(), description_markdown: None, notes_markdown: None,
         status, priority: TaskflowTaskPriority::Normal, sort_order: 0, created_by: None, assigned_user: None, assigned_agent_id: None,
         review_gate: None, estimate_minutes: None, operator_user: None, operator_agent_id: None, created_by_agent_id: None,
         assignee_label: None, due_at: None, closed_at: None, github_issue_number: None, github_issue_url: None, github_repo: None,

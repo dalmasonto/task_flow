@@ -37,7 +37,7 @@ async fn boot() -> (TestApp, i64, i64, String, i64) {
 async fn task_for(project: i64, agent: i64, status: TaskflowTaskStatus) -> i64 {
     TaskflowTask::objects()
         .create(TaskflowTask {
-            id: 0, project: ForeignKey::new(project), title: "work".into(), description_markdown: String::new(),
+            id: 0, project: ForeignKey::new(project), title: "work".into(), description_markdown: None,
             notes_markdown: None, status, priority: TaskflowTaskPriority::Normal, sort_order: 0, created_by: None,
             assigned_user: None, assigned_agent_id: Some(agent), review_gate: None, estimate_minutes: None,
             operator_user: None, operator_agent_id: None, created_by_agent_id: None, assignee_label: None,

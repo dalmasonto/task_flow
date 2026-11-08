@@ -424,7 +424,7 @@ async fn a_review_on_a_roomless_project_still_reports_back() {
             id: 0,
             project: ForeignKey::new(project),
             title: "Ship the thing".to_string(),
-            description_markdown: String::new(),
+            description_markdown: None,
             notes_markdown: None,
             status: TaskflowTaskStatus::PartialDone,
             priority: TaskflowTaskPriority::Normal,

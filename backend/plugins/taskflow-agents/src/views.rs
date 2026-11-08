@@ -3057,7 +3057,7 @@ pub async fn create_task_as_agent(
             // Scope is the agent's own project, never accepted from the body.
             project: ForeignKey::new(agent.project_id),
             title,
-            description_markdown: description,
+            description_markdown: Some(description),
             notes_markdown: input.notes_markdown,
             status: TaskflowTaskStatus::NotStarted,
             priority: input.priority.unwrap_or(TaskflowTaskPriority::Normal),
@@ -3159,7 +3159,7 @@ pub async fn update_task_as_agent(
         if description.chars().count() > MAX_TASK_TEXT_CHARS {
             return Err(StatusCode::BAD_REQUEST.into());
         }
-        task.description_markdown = description;
+        task.description_markdown = Some(description);
     }
     if let Some(notes) = input.notes_markdown {
         if notes.chars().count() > MAX_TASK_TEXT_CHARS {

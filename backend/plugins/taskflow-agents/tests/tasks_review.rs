@@ -388,7 +388,7 @@ async fn human_review_notifies_the_operator_agent_when_not_assigned() {
             id: 0,
             project: ForeignKey::new(project),
             title: "Operator task".to_string(),
-            description_markdown: "do it".to_string(),
+            description_markdown: Some("do it".to_string()),
             notes_markdown: None,
             status: TaskflowTaskStatus::PartialDone,
             priority: TaskflowTaskPriority::Normal,

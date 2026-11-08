@@ -27,7 +27,7 @@ async fn seed_task(project: i64) -> i64 {
             id: 0,
             project: umbral::orm::ForeignKey::new(project),
             title: "Attachment task".to_string(),
-            description_markdown: "look at the image".to_string(),
+            description_markdown: Some("look at the image".to_string()),
             notes_markdown: None,
             status: TaskflowTaskStatus::NotStarted,
             priority: TaskflowTaskPriority::Normal,

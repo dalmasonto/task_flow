@@ -67,8 +67,11 @@ pub struct TaskflowTask {
     pub project: ForeignKey<TaskflowProject>,
     #[umbral(string, max_length = 220)]
     pub title: String,
+    /// Optional (#1124 follow-up): a task may have no description, and both
+    /// create and update accept `""`. NULL (an omitted field) is served as
+    /// `""` by REST (`backend/src/rest.rs`), so the wire type stays a string.
     #[umbral(string, max_length = 12000, widget = "textarea")]
-    pub description_markdown: String,
+    pub description_markdown: Option<String>,
     #[umbral(string, max_length = 12000, widget = "textarea")]
     pub notes_markdown: Option<String>,
     #[umbral(choices, default = "not_started")]

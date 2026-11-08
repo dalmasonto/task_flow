@@ -106,7 +106,7 @@ pub async fn publish_issue(
             &repo,
             NewIssue {
                 title: task.title.clone(),
-                body: task.description_markdown.clone(),
+                body: task.description_markdown.clone().unwrap_or_default(),
             },
         )
         .await

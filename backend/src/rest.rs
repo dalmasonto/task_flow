@@ -358,6 +358,13 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // auto-REST delete let any viewer revoke anyone's agent.
             if *table == "taskflow_agent" {
                 config.views([Action::List, Action::Retrieve, Action::Create, Action::Update])
+            } else if *table == "taskflow_task" {
+                // A task's description is optional (stored NULL when omitted),
+                // but clients have always read it as a string: serve NULL as "".
+                config.transform("description_markdown", |v| match v {
+                    serde_json::Value::Null => serde_json::Value::String(String::new()),
+                    other => other.clone(),
+                })
             } else {
                 config
             }

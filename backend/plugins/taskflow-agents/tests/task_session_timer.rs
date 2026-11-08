@@ -27,7 +27,7 @@ async fn seed_task(project: i64) -> i64 {
             id: 0,
             project: umbral::orm::ForeignKey::new(project),
             title: "Timer task".to_string(),
-            description_markdown: String::new(),
+            description_markdown: None,
             notes_markdown: None,
             status: TaskflowTaskStatus::NotStarted,
             priority: taskflow_tasks::models::TaskflowTaskPriority::Normal,
