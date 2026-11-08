@@ -47,6 +47,7 @@ pub mod search;
 pub mod screenshots;
 pub mod signals;
 pub mod store;
+pub mod threads;
 pub mod tokens;
 pub mod urls;
 pub mod validation;
@@ -73,6 +74,7 @@ impl Plugin for TaskflowDesignPlugin {
         vec![
             umbral::migrate::ModelMeta::for_::<models::DesignFile>(),
             umbral::migrate::ModelMeta::for_::<models::DesignComment>(),
+            umbral::migrate::ModelMeta::for_::<models::DesignCommentReply>(),
             umbral::migrate::ModelMeta::for_::<models::DesignLayout>(),
             // #520: append-only history, one row per accepted write.
             umbral::migrate::ModelMeta::for_::<models::DesignFileVersion>(),

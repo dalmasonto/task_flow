@@ -764,7 +764,7 @@ mod tests {
         // `DesignComment` — the row `views.rs`'s comment handlers serialise
         // whole (list, create, update), and the shape this class STARTED with:
         // `design-api.ts`'s own note records that the inspector read `pagePath`
-        // while the endpoint sent `page_path`. Seventeen keys, no `rename_all`,
+        // while the endpoint sent `page_path`. Eighteen keys (#1123 added `sent_to_agent`), no `rename_all`,
         // so the wire is the column names. Only `resolution_note` is pinned
         // anywhere else on the wire (`phase3_agent_surface.rs`), and
         // `design-comments.test.ts` pins the CLIENT helpers against the wire
@@ -788,6 +788,7 @@ mod tests {
             author: "operator".to_string(),
             resolution_note: None,
             orphaned: false,
+            sent_to_agent: None,
             created_at: None,
         };
         assert_eq!(
@@ -795,7 +796,7 @@ mod tests {
             [
                 "author", "body", "component_name", "created_at", "element_path", "id",
                 "orphaned", "page_path", "project", "rect", "resolution_note", "scope",
-                "snippet", "src_ref", "status", "thread_id", "viewport"
+                "sent_to_agent", "snippet", "src_ref", "status", "thread_id", "viewport"
             ]
         );
     }

@@ -208,6 +208,8 @@ export type DesignComment = {
   author: string
   resolution_note: string | null
   orphaned: boolean
+  /// #1123: the agent the comment was dispatched to (null until dispatched).
+  sent_to_agent: number | null
   created_at: string | null
 }
 

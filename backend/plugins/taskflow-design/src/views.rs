@@ -870,6 +870,7 @@ pub async fn create_comment(
             author: operator_attribution(&caller),
             resolution_note: None,
             orphaned: false,
+            sent_to_agent: None,
             created_at: None,
         })
         .await

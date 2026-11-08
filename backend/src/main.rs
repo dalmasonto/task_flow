@@ -150,6 +150,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // --- Plugins ---------------------------------------------------------
         // Auth: user table, password hashing, createsuperuser command.
         .plugin(AuthPlugin::<AuthUser>::default().with_default_routes())
+        // #1101: people's bearer tokens expire (idle 14 d, absolute 30 d) and a
+        // password change drops the user's other tokens; see token_lifetime.rs.
+        .plugin(backend::token_lifetime::TokenLifetimePlugin)
         // Sessions: session table + cookie middleware.
         .plugin(SessionsPlugin::default())
         // TaskFlow domain plugins: project workspaces, project-based tasks, and

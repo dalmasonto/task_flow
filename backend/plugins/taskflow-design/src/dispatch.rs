@@ -175,6 +175,8 @@ pub async fn dispatch_comments(
     let mut sent_ids = Vec::with_capacity(comments.len());
     for mut c in comments {
         c.status = CommentStatus::Sent;
+        // #1123: remember who it went to ("sent to X"; reply notices).
+        c.sent_to_agent = Some(ForeignKey::new(agent.id));
         let saved = DesignComment::objects()
             .save(c)
             .await

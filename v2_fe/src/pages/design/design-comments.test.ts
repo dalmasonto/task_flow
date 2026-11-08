@@ -56,6 +56,7 @@ async function fetchComments(overrides: Record<string, unknown> = {}): Promise<D
         author: "dalmas",
         resolution_note: "the avatar is now h-6 w-6",
         orphaned: false,
+        sent_to_agent: null,
         created_at: "2026-09-25T07:00:00Z",
         ...overrides,
       },
