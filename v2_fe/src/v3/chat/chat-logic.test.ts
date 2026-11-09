@@ -72,3 +72,17 @@ describe("stripChips", () => {
     expect(chatRow(c).preview).toBe("zz-qa bot: @leakprobe QA ping")
   })
 })
+
+describe("listTime", () => {
+  // Local-time construction so the test holds in any TZ.
+  const now = new Date(2026, 10, 10, 9, 0).getTime()
+  it("reads like chat.html", async () => {
+    const { listTime } = await import("./chat-logic")
+    expect(listTime(new Date(2026, 10, 10, 7, 5).toISOString(), now)).toBe("07:05")
+    expect(listTime(new Date(2026, 10, 9, 23, 59).toISOString(), now)).toBe("Yesterday")
+    expect(listTime(new Date(2026, 10, 6, 12, 0).toISOString(), now)).toBe("Fri")
+    expect(listTime(new Date(2026, 6, 24, 12, 0).toISOString(), now)).toBe("24 Jul")
+    expect(listTime(new Date(2025, 6, 24, 12, 0).toISOString(), now)).toBe("24 Jul 2025")
+    expect(listTime("nope", now)).toBe("")
+  })
+})

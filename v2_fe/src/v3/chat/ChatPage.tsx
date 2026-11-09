@@ -3,7 +3,7 @@
 /// `useAgentChat` + `AgentsConversationView`, kept whole; v3 owns the layout,
 /// the conversation list, and #TSK1092: opening a chat puts the cursor in its
 /// message box.
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeftIcon, HashIcon, MessagesSquareIcon, PaletteIcon, PencilIcon, SearchIcon, UsersIcon } from "lucide-react"
 
@@ -33,7 +33,7 @@ import { V3Shell } from "../shell/V3Shell"
 import { seedTaskFrom } from "../tasks/task-seed"
 import { useMayDrive } from "../lib/use-may-drive"
 import { useWorkspace } from "../workspace"
-import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions, type ChatFilter, type ChatRow } from "./chat-logic"
+import { byRecent, chatRow, filterChats, followLine, listTime, rowBadge, withMentions, type ChatFilter, type ChatRow } from "./chat-logic"
 import { useChatSummary } from "./use-chat-summary"
 import { useRoomExtras } from "./use-room-extras"
 import { reactionIds } from "./pins-logic"
@@ -175,7 +175,11 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
             <span className={cn("min-w-0 flex-1 truncate text-sm", r.unread ? "font-semibold" : "font-medium")}>{r.title}</span>
-            {r.at ? <time className="shrink-0 text-xs text-muted-foreground">{timeAgo(r.at, now)}</time> : null}
+            {r.at ? (
+              <time dateTime={r.at} title={new Date(r.at).toLocaleString()} className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                {listTime(r.at, now)}
+              </time>
+            ) : null}
           </span>
           <span className="flex items-center gap-2">
             {writing ? (
@@ -197,7 +201,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="relative shrink-0 space-y-2 border-b border-border p-3">
+      <div className="relative shrink-0 space-y-2 p-3">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -216,7 +220,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
               role="tab"
               aria-selected={active === f.id}
               onClick={() => setFilter(f.id)}
-              className={cn("inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs", active === f.id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:text-foreground")}
+              className={cn("inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs", active === f.id ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
             >
               {f.label}
               {f.id === "unread" && unread ? <span className="tabular-nums">{unread}</span> : null}
@@ -270,7 +274,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
   )
 }
 
-function ChatWorkspace({ project }: { project: Project }) {
+function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title: ReactNode) => void }) {
   const navigate = useNavigate()
   const detail = useDetail()
   const { slug } = useParams()
@@ -298,6 +302,10 @@ function ChatWorkspace({ project }: { project: Project }) {
       if (seedTaskFrom(body)) detail.open({ kind: "new-task", status: "not_started" })
     },
   })
+
+  // chat.html puts the open conversation's name in the shell header.
+  const headerTitle = selectedChat ? `${selectedChat.mode === "channel" ? "# " : ""}${selectedChat.title}` : "Chat"
+  useEffect(() => onTitle(headerTitle), [headerTitle, onTitle])
 
   const baseRows = useMemo(() => [...channelChats, ...directChats].map((c) => chatRow(c)), [channelChats, directChats])
   // #5983: mention counts and followed threads, refetched when any unread
@@ -401,9 +409,10 @@ function ChatWorkspace({ project }: { project: Project }) {
   const { projectTasks } = useWorkspace()
   const [panelPref, setPanelPref] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(PANEL_KEY) !== "0"
+      // Closed until asked for, as in chat.html (the room gets the width).
+      return localStorage.getItem(PANEL_KEY) === "1"
     } catch {
-      return true
+      return false
     }
   })
   const [panelSheet, setPanelSheet] = useState(false)
@@ -614,6 +623,7 @@ function ChatWorkspace({ project }: { project: Project }) {
                   onComposerInput={signalTyping ? () => void sendTyping(channel.id) : undefined}
                   aboveComposer={TYPING_LIVE && channelId != null ? <TypingLine text={typingText(typers.get(channelId) ?? [])} /> : null}
                   messageLayout="row"
+                  composerStyle="v3"
                   renderAvatar={renderAvatar}
                   senderBadge={senderBadge}
                   renderActions={renderActions}
@@ -672,10 +682,11 @@ function ChatWorkspace({ project }: { project: Project }) {
 
 export function ChatPage() {
   const { activeProject } = useWorkspace()
+  const [title, setTitle] = useState<ReactNode>("Chat")
   return (
-    <V3Shell title="Chat" flush>
+    <V3Shell title={title} flush>
       {activeProject ? (
-        <ChatWorkspace project={activeProject} />
+        <ChatWorkspace project={activeProject} onTitle={setTitle} />
       ) : (
         <Empty className="mx-auto mt-16 max-w-md rounded-2xl border border-dashed">
           <EmptyHeader>

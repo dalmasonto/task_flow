@@ -117,11 +117,12 @@ export function RoomHeader({
     <>
       <div className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border px-4 py-2">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold">
+          {/* The shell header carries the name on wide screens (chat.html). */}
+          <h2 className="truncate text-sm font-semibold lg:sr-only">
             {isRoom ? <span className="text-muted-foreground"># </span> : null}
             {title}
           </h2>
-          {topic?.trim() ? <p className="truncate text-xs text-muted-foreground" title={topic}>{topic}</p> : null}
+          {topic?.trim() ? <p className="truncate text-xs text-muted-foreground lg:text-sm" title={topic}>{topic}</p> : null}
         </div>
         {faces.length ? (
           <button type="button" className="hidden shrink-0 items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-muted sm:flex" onClick={onTogglePanel} aria-label={`${faces.length} members. Show room details`}>

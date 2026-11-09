@@ -4,7 +4,7 @@ import { AgentTerminalPanel } from "@/components/chat/terminal"
 import { ChatFilesTab } from "@/components/chat/files-tab"
 import { QuestionActionButton, QuestionDialog } from "@/components/chat/structured-question"
 import { AgentsConversationEmpty, type AgentsOutletContext } from "@/pages/agents"
-import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, RadioIcon, ReplyIcon, SendIcon, SmileIcon, TerminalIcon, XIcon } from "lucide-react"
+import { ArrowLeftIcon, AtSignIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, ReplyIcon, SendIcon, SmileIcon, TerminalIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { MESSAGE_PAGE_SIZE, buildThreadItems } from "@/lib/live-mappers"
@@ -83,6 +83,7 @@ export function AgentsConversationView({
   readOnly = false,
   onComposerInput,
   aboveComposer,
+  composerStyle = "classic",
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   /// #506: the design pages `@page:` can mention. Absent (every surface but the
@@ -128,8 +129,12 @@ export function AgentsConversationView({
   onComposerInput?: () => void
   /// Just above the composer (v3: who else is writing).
   aboveComposer?: ReactNode
+  /// "v3": chat.html's composer (attach, @, emoji; an Enter hint; a labelled
+  /// Send). Same behaviour, different dress; v2 surfaces keep "classic".
+  composerStyle?: "classic" | "v3"
 }) {
   const compact = variant === "compact"
+  const v3Composer = composerStyle === "v3"
   const isDesign = variant === "design"
   const navigate = useNavigate()
 
@@ -1039,7 +1044,7 @@ export function AgentsConversationView({
               ref={composerRef}
               rows={1}
               className="max-h-[8.5rem] min-h-9 w-full resize-none bg-transparent px-1 py-1.5 text-sm leading-5 outline-none placeholder:text-muted-foreground"
-              placeholder={`Message ${selectedChat.title}…`}
+              placeholder={v3Composer ? `Message ${selectedChat.mode === "channel" ? "#" : ""}${selectedChat.title}, type @ to mention` : `Message ${selectedChat.title}…`}
               value={draftMessage}
               onChange={(event) => {
                 const value = event.target.value
@@ -1100,6 +1105,41 @@ export function AgentsConversationView({
 
             <div className="flex min-w-0 items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-0.5">
+                {v3Composer ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="rounded-xl"
+                      aria-label="Attach file"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <PaperclipIcon />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="rounded-xl"
+                      aria-label="Mention someone"
+                      title="Mention someone"
+                      onClick={() => {
+                        // Same path as typing "@": the picker opens at the caret.
+                        const textarea = composerRef.current
+                        const start = textarea?.selectionStart ?? draftMessage.length
+                        const end = textarea?.selectionEnd ?? draftMessage.length
+                        const before = draftMessage.slice(0, start)
+                        const text = before && !/\s$/.test(before) ? " @" : "@"
+                        const { value, caret } = spliceAtCaret(draftMessage, start, end, text)
+                        insertAtCaret(text)
+                        setMention(detectMention(value, caret))
+                      }}
+                    >
+                      <AtSignIcon />
+                    </Button>
+                  </>
+                ) : null}
                 <div className="relative">
                   <Button
                     type="button"
@@ -1220,26 +1260,19 @@ export function AgentsConversationView({
                     ) : null}
                   </div>
                 ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="rounded-xl"
-                  aria-label="Attach file"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <PaperclipIcon />
-                </Button>
+                {v3Composer ? null : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="rounded-xl"
+                    aria-label="Attach file"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <PaperclipIcon />
+                  </Button>
+                )}
 
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="rounded-xl"
-                  aria-label="Broadcast"
-                >
-                  <RadioIcon />
-                </Button>
 
                 <Select
                   value={messagePriority}
@@ -1262,15 +1295,25 @@ export function AgentsConversationView({
                 </Select>
               </div>
 
-              <Button
-                type="submit"
-                size="icon-lg"
-                className="rounded-2xl"
-                disabled={!canSendMessage}
-                aria-label="Send"
-              >
-                <SendIcon />
-              </Button>
+              {v3Composer ? (
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="hidden text-xs text-muted-foreground lg:inline">Enter to send, Shift Enter for a new line</span>
+                  <Button type="submit" disabled={!canSendMessage}>
+                    <SendIcon />
+                    Send
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="submit"
+                  size="icon-lg"
+                  className="rounded-2xl"
+                  disabled={!canSendMessage}
+                  aria-label="Send"
+                >
+                  <SendIcon />
+                </Button>
+              )}
             </div>
           </div>
         </form>

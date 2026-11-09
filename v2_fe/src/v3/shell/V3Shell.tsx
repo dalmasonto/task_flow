@@ -3,10 +3,9 @@
 /// workspace data, never a placeholder.
 import { useEffect, useState, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { BotIcon, ChevronRightIcon, ChevronsUpDownIcon, CircleDotIcon, HashIcon, LogOutIcon, MessageSquareIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, TerminalIcon, UserIcon } from "lucide-react"
+import { BotIcon, InboxIcon, ChevronRightIcon, ChevronsUpDownIcon, CircleDotIcon, HashIcon, LogOutIcon, MessageSquareIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, TerminalIcon, UserIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
@@ -53,6 +52,13 @@ import { badgeText, type LiveAgent, type SidebarChat } from "./sidebar-logic"
 import { useSidebarData } from "./use-sidebar-data"
 import { OfflineBanner } from "../system/OfflineBanner"
 
+/// tf-shell's group labels: sentence case, muted, not the primitive's small caps.
+const LABEL = "text-xs font-medium normal-case text-muted-foreground"
+
+/// A mention badge stays primary even on the active (selected) item, whose
+/// own badge style would otherwise win.
+const MENTION = "rounded-full bg-primary px-1.5 text-primary-foreground ring-0 peer-data-active/menu-button:bg-primary peer-data-active/menu-button:text-primary-foreground"
+
 type NavCounts = V3Workspace["counts"] & { inbox: number; chat: number; decisions: number }
 
 function NavLink({ item, active, counts, mention }: { item: NavItem; active: boolean; counts: NavCounts; mention: boolean }) {
@@ -67,7 +73,7 @@ function NavLink({ item, active, counts, mention }: { item: NavItem; active: boo
       </SidebarMenuButton>
       {n > 0 ? (
         <SidebarMenuBadge
-          className={cn(item.live && "gap-1 text-muted-foreground", at && "rounded-full bg-primary px-1.5 text-primary-foreground peer-hover/menu-button:text-primary-foreground")}
+          className={cn(item.live && "gap-1 text-muted-foreground", at && MENTION)}
           aria-label={at ? `${n} unread, you are mentioned` : undefined}
         >
           {item.live ? <span className="size-1.5 rounded-full bg-running" aria-hidden /> : null}
@@ -102,7 +108,7 @@ function Section({ title, count, action, children }: { title: string; count?: st
   return (
     <Collapsible defaultOpen className="group/section group-data-[collapsible=icon]:hidden">
       <SidebarGroup>
-        <SidebarGroupLabel render={<CollapsibleTrigger />} className="gap-1">
+        <SidebarGroupLabel render={<CollapsibleTrigger />} className={cn(LABEL, "gap-1")}>
           <ChevronRightIcon className="transition-transform group-data-[open]/section:rotate-90" />
           {title}
           {count ? <span className="ml-1 tabular-nums group-data-[open]/section:hidden">{count}</span> : null}
@@ -163,7 +169,7 @@ function ChatBadge({ row }: { row: SidebarChat }) {
   const at = row.mentions > 0
   return (
     <SidebarMenuBadge
-      className={cn("rounded-full px-1.5", at ? "bg-primary text-primary-foreground peer-hover/menu-button:text-primary-foreground" : "bg-muted text-muted-foreground")}
+      className={cn("rounded-full px-1.5", at ? MENTION : "bg-muted text-muted-foreground")}
       aria-label={`${row.unread} unread${at ? ", you are mentioned" : ""}`}
     >
       {at ? "@" : null}
@@ -299,29 +305,48 @@ function UserMenu() {
   )
 }
 
-/// A truthful feed indicator: green when live, amber while reconnecting, so a
-/// dead feed is visible instead of silently stale (same rule as v2's header).
+/// A truthful feed indicator. The design has none, so it only shows when the
+/// feed is NOT live (reconnecting, syncing): a dead feed must be visible
+/// rather than silently stale (same rule as v2's header), a healthy one quiet.
 function LiveStatus() {
   const { realtimeStatus, isSyncing, refresh } = useWorkspace()
-  const label = isSyncing ? "Syncing" : realtimeStatus === "reconnecting" ? "Reconnecting" : realtimeStatus === "connecting" ? "Connecting" : "Live"
+  if (!isSyncing && realtimeStatus === "live") return null
+  const label = isSyncing ? "Syncing" : realtimeStatus === "reconnecting" ? "Reconnecting" : "Connecting"
   return (
     <Button variant="ghost" size="sm" onClick={refresh} disabled={isSyncing} title="Refetch the workspace">
-      <span
-        className={cn(
-          "size-2 rounded-full",
-          isSyncing || realtimeStatus === "connecting"
-            ? "animate-pulse bg-muted-foreground"
-            : realtimeStatus === "reconnecting"
-              ? "animate-pulse bg-blocked"
-              : "bg-running",
-        )}
-      />
+      <span className={cn("size-2 animate-pulse rounded-full", realtimeStatus === "reconnecting" ? "bg-blocked" : "bg-muted-foreground")} />
       {label}
     </Button>
   )
 }
 
-export function V3Shell({ title, actions, flush, children }: { title: string; actions?: ReactNode; flush?: boolean; children: ReactNode }) {
+/// tf-shell's header chip: who is live, linking to Agents.
+function LiveChip({ agents }: { agents: LiveAgent[] }) {
+  if (!agents.length) return null
+  return (
+    <Link to="/v3/agents" className="hidden items-center gap-1.5 rounded-full border border-border py-0.5 pr-2 pl-0.5 hover:bg-accent sm:flex" aria-label={`${agents.length} agents live`} title={agents.map((a) => a.name).join(", ")}>
+      <span className="flex -space-x-1">
+        {agents.slice(0, 3).map((a) => (
+          <ActorAvatar key={a.id} model={a.model} name={a.name} size="xs" className="ring-1 ring-background" />
+        ))}
+      </span>
+      <span className="size-1.5 rounded-full bg-running" aria-hidden />
+      <span className="text-xs tabular-nums">{agents.length}</span>
+    </Link>
+  )
+}
+
+/// tf-shell's inbox bell, with a dot while something waits on you.
+function InboxBell({ waiting }: { waiting: number }) {
+  return (
+    <Button variant="ghost" size="icon-sm" className="relative" aria-label={waiting ? `Inbox, ${waiting} waiting on you` : "Inbox"} title="Inbox" render={<Link to="/v3/inbox" />}>
+      <InboxIcon />
+      {waiting ? <span className="absolute top-1 right-1 size-2 rounded-full bg-primary ring-2 ring-background" aria-hidden /> : null}
+    </Button>
+  )
+}
+
+export function V3Shell({ title, actions, flush, children }: { title: ReactNode; actions?: ReactNode; flush?: boolean; children: ReactNode }) {
   const { pathname } = useLocation()
   const { counts } = useWorkspace()
   const side = useSidebarData()
@@ -371,13 +396,13 @@ export function V3Shell({ title, actions, flush, children }: { title: string; ac
             )
             const block = !group.collapsible ? (
               <SidebarGroup key={group.title}>
-                <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
+                <SidebarGroupLabel className={LABEL}>{group.title}</SidebarGroupLabel>
                 <SidebarGroupContent>{menu}</SidebarGroupContent>
               </SidebarGroup>
             ) : (
               <Collapsible key={`${group.title}-${group.items.some((i) => i.id === active)}`} defaultOpen={group.items.some((i) => i.id === active)} className="group/collapsible">
                 <SidebarGroup>
-                  <SidebarGroupLabel render={<CollapsibleTrigger />}>
+                  <SidebarGroupLabel className={LABEL} render={<CollapsibleTrigger />}>
                     {group.title}
                     <ChevronRightIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-90" />
                   </SidebarGroupLabel>
@@ -412,13 +437,12 @@ export function V3Shell({ title, actions, flush, children }: { title: string; ac
       <SidebarInset className="h-svh min-w-0 overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
           <SidebarTrigger className="-ml-1" />
-          <h1 className="truncate text-sm font-medium">{title}</h1>
-          <Badge variant="outline" className="hidden sm:inline-flex">
-            v3 preview
-          </Badge>
+          <h1 className="truncate text-base font-semibold">{title}</h1>
           <div className="ml-auto flex items-center gap-2">
             {actions}
             <LiveStatus />
+            <LiveChip agents={side.agents} />
+            <InboxBell waiting={side.inbox} />
           </div>
         </header>
         <OfflineBanner />

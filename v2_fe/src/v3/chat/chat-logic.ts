@@ -85,3 +85,18 @@ export function followLine(t: { replies: number; last_repliers: string[] }, room
   if (who) parts.push(`${who} replied last`)
   return parts.join(", ")
 }
+
+/// chat.html's list times: "15:21" today, "Yesterday", the weekday within the
+/// last week ("Mon"), then a date ("24 Jul", with the year once it isn't this
+/// year's). Local time, 24-hour like the design.
+export function listTime(at: string, now: number): string {
+  const d = new Date(at)
+  if (Number.isNaN(d.getTime())) return ""
+  const today = new Date(now)
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((startOfDay(today) - startOfDay(d)) / 86_400_000)
+  if (days <= 0) return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+  if (days === 1) return "Yesterday"
+  if (days < 7) return d.toLocaleDateString("en-GB", { weekday: "short" })
+  return d.toLocaleDateString("en-GB", d.getFullYear() === today.getFullYear() ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" })
+}
