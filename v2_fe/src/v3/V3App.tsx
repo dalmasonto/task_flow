@@ -134,6 +134,10 @@ const ReviewsPage = lazyNamed(
   () => import("./reviews/ReviewsPage"),
   "ReviewsPage",
 );
+const DatabasePage = lazyNamed(
+  () => import("./database/DatabasePage"),
+  "DatabasePage",
+);
 const DecisionsPage = lazyNamed(
   () => import("./decisions/DecisionsPage"),
   "DecisionsPage",
@@ -236,6 +240,7 @@ export function V3App() {
             <Route path="/v3/activity" element={<ActivityPage />} />
             <Route path="/v3/reviews" element={<ReviewsPage />} />
             <Route path="/v3/decisions" element={<DecisionsPage />} />
+            <Route path="/v3/database" element={<DatabasePage />} />
             <Route path="/v3/overview" element={<OverviewPage />} />
             <Route path="/v3/usage" element={<UsagePage />} />
             <Route path="/v3/invites" element={<InvitesPage />} />

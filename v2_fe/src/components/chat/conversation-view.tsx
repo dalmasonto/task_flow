@@ -933,7 +933,7 @@ export function AgentsConversationView({
         ) : null}
 
         {readOnly ? null : aboveComposer}
-        <form className={cn("shrink-0 border-t bg-background p-3", readOnly && "hidden")} onSubmit={handleSendMessage}>
+        <form className={cn("shrink-0 border-t bg-background p-3", v3Composer && "@container", readOnly && "hidden")} onSubmit={handleSendMessage}>
           {emojiPickerOpen ? (
             <button
               type="button"
@@ -1103,7 +1103,7 @@ export function AgentsConversationView({
             />
             </div>
 
-            <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className={cn("flex min-w-0 items-center justify-between gap-2", v3Composer && "flex-wrap")}>
               <div className="flex min-w-0 items-center gap-0.5">
                 {v3Composer ? (
                   <>
@@ -1296,8 +1296,8 @@ export function AgentsConversationView({
               </div>
 
               {v3Composer ? (
-                <div className="flex shrink-0 items-center gap-3">
-                  <span className="hidden text-xs text-muted-foreground lg:inline">Enter to send, Shift Enter for a new line</span>
+                <div className="ml-auto flex shrink-0 items-center gap-3">
+                  <span className="hidden text-xs text-muted-foreground @2xl:inline">Enter to send, Shift Enter for a new line</span>
                   <Button type="submit" disabled={!canSendMessage}>
                     <SendIcon />
                     Send

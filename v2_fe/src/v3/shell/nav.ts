@@ -1,11 +1,11 @@
 /// The v3 sidebar's navigation, from the design's `tf-shell` (docs/v3-design/
-/// components/tf-shell.js), in its order. Only surfaces that exist are listed:
-/// Database joins once its page is built, so the shell never links to
-/// something that isn't there.
+/// components/tf-shell.js), in its order. Only surfaces that exist are listed,
+/// so the shell never links to something that isn't there.
 import {
   ActivityIcon,
   BotIcon,
   CheckCheckIcon,
+  DatabaseIcon,
   FileTextIcon,
   GaugeIcon,
   HouseIcon,
@@ -96,6 +96,7 @@ export const V3_NAV: NavGroup[] = [
         href: "/v3/design",
         count: "designUnread",
       },
+      { id: "database", label: "Database", icon: DatabaseIcon, href: "/v3/database" },
       {
         id: "toolbox",
         label: "Toolbox",

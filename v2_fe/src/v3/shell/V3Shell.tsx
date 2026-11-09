@@ -339,7 +339,7 @@ function LiveChip({ agents }: { agents: LiveAgent[] }) {
 /// tf-shell's inbox bell, with a dot while something waits on you.
 function InboxBell({ waiting }: { waiting: number }) {
   return (
-    <Button variant="ghost" size="icon-sm" className="relative" aria-label={waiting ? `Inbox, ${waiting} waiting on you` : "Inbox"} title="Inbox" render={<Link to="/v3/inbox" />}>
+    <Button variant="ghost" size="icon-sm" className="relative" nativeButton={false} aria-label={waiting ? `Inbox, ${waiting} waiting on you` : "Inbox"} title="Inbox" render={<Link to="/v3/inbox" />}>
       <InboxIcon />
       {waiting ? <span className="absolute top-1 right-1 size-2 rounded-full bg-primary ring-2 ring-background" aria-hidden /> : null}
     </Button>
