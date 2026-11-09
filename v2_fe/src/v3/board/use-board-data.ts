@@ -1,6 +1,7 @@
 /// The board's view of the workspace: filtered tasks plus a card builder that
 /// joins each task with its raw row, agents and attachment count.
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 
 import type { TaskflowTask } from "@/api/client"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
@@ -11,7 +12,7 @@ import { fetchClaimLease } from "@/lib/taskflow-api"
 import { normalizeStatus, type TaskStatus } from "../lib/task-status"
 import { useLoad } from "../lib/use-load"
 import { useWorkspace } from "../workspace"
-import { boardRepos, cardInfo, EMPTY_FILTER, filterBoard, type BoardFilter } from "./board-logic"
+import { boardRepos, cardInfo, EMPTY_FILTER, filterBoard, VIEWS, viewFilter, type BoardFilter, type ViewId } from "./board-logic"
 
 export function useBoardData(filter: BoardFilter) {
   const { projectTasks, live, currentUser } = useWorkspace()
@@ -55,5 +56,24 @@ export function useBoardFilter(): [BoardFilter, (f: BoardFilter) => void] {
       /* private mode: the filter still works for this page */
     }
   }
+  // ?view=<id> (the sidebar's saved views under Board) applies that preset
+  // once and leaves the URL, so a reload keeps whatever was chosen after.
+  const [params, setParams] = useSearchParams()
+  const view = params.get("view")
+  const [appliedView, setAppliedView] = useState<string | null>(null)
+  if (view !== appliedView) {
+    setAppliedView(view)
+    if (view && VIEWS.some((v) => v.id === view)) update(viewFilter(view as ViewId))
+  }
+  useEffect(() => {
+    if (!view) return
+    setParams(
+      (p) => {
+        p.delete("view")
+        return p
+      },
+      { replace: true },
+    )
+  }, [view, setParams])
   return [filter, update]
 }

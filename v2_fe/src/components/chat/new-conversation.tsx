@@ -22,7 +22,10 @@ export function NewConversationPanel({
   candidates,
   onCreate,
   onClose,
+  initialMode = "direct",
 }: {
+  /// Which tab opens first: a direct message, or a group room.
+  initialMode?: "direct" | "group"
   candidates: ConversationCandidate[]
   onCreate: (
     kind: "direct" | "group",
@@ -31,7 +34,7 @@ export function NewConversationPanel({
   ) => Promise<void>
   onClose: () => void
 }) {
-  const [mode, setMode] = useState<"direct" | "group">("direct")
+  const [mode, setMode] = useState<"direct" | "group">(initialMode)
   const [groupTitle, setGroupTitle] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState("")

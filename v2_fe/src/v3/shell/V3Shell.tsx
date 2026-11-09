@@ -3,7 +3,7 @@
 /// workspace data, never a placeholder.
 import { useEffect, useState, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { ChevronRightIcon, ChevronsUpDownIcon, LogOutIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, UserIcon } from "lucide-react"
+import { BotIcon, ChevronRightIcon, ChevronsUpDownIcon, CircleDotIcon, HashIcon, LogOutIcon, MessageSquareIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, TerminalIcon, UserIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -30,12 +31,17 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { initialsFor } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
 
+import { VIEWS } from "../board/board-logic"
+import { ActorAvatar } from "../components/actor-avatar"
 import { DetailSheetHost } from "../components/DetailSheet"
 import { useDetail } from "../lib/use-detail"
 import { V3_LOGIN } from "../routes"
@@ -43,11 +49,16 @@ import { useWorkspace, type V3Workspace } from "../workspace"
 import { CommandPalette } from "./CommandPalette"
 import { activeNavId, V3_NAV, type NavItem } from "./nav"
 import { ProjectSwitcher } from "./ProjectSwitcher"
+import { badgeText, type LiveAgent, type SidebarChat } from "./sidebar-logic"
+import { useSidebarData } from "./use-sidebar-data"
 import { OfflineBanner } from "../system/OfflineBanner"
 
-function NavLink({ item, active, counts }: { item: NavItem; active: boolean; counts: V3Workspace["counts"] }) {
+type NavCounts = V3Workspace["counts"] & { inbox: number; chat: number; decisions: number }
+
+function NavLink({ item, active, counts, mention }: { item: NavItem; active: boolean; counts: NavCounts; mention: boolean }) {
   const n = item.count ? counts[item.count] : 0
   const Icon = item.icon
+  const at = item.id === "chat" && mention
   return (
     <SidebarMenuItem>
       <SidebarMenuButton isActive={active} tooltip={item.label} render={<Link to={item.href} />}>
@@ -55,12 +66,192 @@ function NavLink({ item, active, counts }: { item: NavItem; active: boolean; cou
         <span>{item.label}</span>
       </SidebarMenuButton>
       {n > 0 ? (
-        <SidebarMenuBadge className={cn(item.live && "gap-1 text-muted-foreground")}>
+        <SidebarMenuBadge
+          className={cn(item.live && "gap-1 text-muted-foreground", at && "rounded-full bg-primary px-1.5 text-primary-foreground peer-hover/menu-button:text-primary-foreground")}
+          aria-label={at ? `${n} unread, you are mentioned` : undefined}
+        >
           {item.live ? <span className="size-1.5 rounded-full bg-running" aria-hidden /> : null}
-          {n}
+          {at ? "@" : null}
+          {badgeText(n)}
         </SidebarMenuBadge>
       ) : null}
+      {item.id === "board" ? <BoardViews /> : null}
     </SidebarMenuItem>
+  )
+}
+
+/// The design's saved views under Board. They are the board's own presets
+/// (board-logic VIEWS); views people save themselves need a backend.
+function BoardViews() {
+  return (
+    <SidebarMenuSub>
+      {VIEWS.filter((v) => v.id !== "all").map((v) => (
+        <SidebarMenuSubItem key={v.id}>
+          <SidebarMenuSubButton render={<Link to={`/v3/board?view=${v.id}`} />}>
+            <span>{v.label}</span>
+          </SidebarMenuSubButton>
+        </SidebarMenuSubItem>
+      ))}
+    </SidebarMenuSub>
+  )
+}
+
+/// A titled sidebar section that folds, like the design's `<details class="tf-sec">`.
+/// Sections are labels-only, so rail mode hides them.
+function Section({ title, count, action, children }: { title: string; count?: string; action?: { label: string; to: string }; children: ReactNode }) {
+  return (
+    <Collapsible defaultOpen className="group/section group-data-[collapsible=icon]:hidden">
+      <SidebarGroup>
+        <SidebarGroupLabel render={<CollapsibleTrigger />} className="gap-1">
+          <ChevronRightIcon className="transition-transform group-data-[open]/section:rotate-90" />
+          {title}
+          {count ? <span className="ml-1 tabular-nums group-data-[open]/section:hidden">{count}</span> : null}
+        </SidebarGroupLabel>
+        {action ? (
+          <SidebarGroupAction title={action.label} aria-label={action.label} render={<Link to={action.to} />}>
+            <PlusIcon />
+          </SidebarGroupAction>
+        ) : null}
+        <CollapsibleContent>
+          <SidebarGroupContent>{children}</SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+    </Collapsible>
+  )
+}
+
+const LIVE_SHOWN = 3
+const CHATS_SHOWN = 8
+
+function LiveNow({ agents }: { agents: LiveAgent[] }) {
+  if (!agents.length) return null
+  const shown = agents.slice(0, LIVE_SHOWN)
+  const rest = agents.slice(LIVE_SHOWN)
+  return (
+    <Section title="Live now" count={String(agents.length)}>
+      <SidebarMenu>
+        {shown.map((a) => (
+          <SidebarMenuItem key={a.id}>
+            <SidebarMenuButton size="lg" className="h-auto py-1.5" render={<Link to={`/v3/agents/${a.id}`} />} title={`${a.name}, ${a.doing}`}>
+              <ActorAvatar model={a.model} name={a.name} status={a.doing === "Online" ? "idle" : "running"} size="sm" />
+              <span className="grid min-w-0 flex-1 leading-tight">
+                <span className="truncate text-sm font-medium">{a.name}</span>
+                <span className="truncate text-xs text-muted-foreground">{a.doing}</span>
+              </span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))}
+        {rest.length ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton size="sm" className="text-xs text-muted-foreground" render={<Link to="/v3/agents" />}>
+              <span className="flex -space-x-1">
+                {rest.slice(0, 4).map((a) => (
+                  <ActorAvatar key={a.id} model={a.model} name={a.name} size="xs" />
+                ))}
+              </span>
+              {rest.length} more online
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null}
+      </SidebarMenu>
+    </Section>
+  )
+}
+
+function ChatBadge({ row }: { row: SidebarChat }) {
+  if (row.unread <= 0) return null
+  const at = row.mentions > 0
+  return (
+    <SidebarMenuBadge
+      className={cn("rounded-full px-1.5", at ? "bg-primary text-primary-foreground peer-hover/menu-button:text-primary-foreground" : "bg-muted text-muted-foreground")}
+      aria-label={`${row.unread} unread${at ? ", you are mentioned" : ""}`}
+    >
+      {at ? "@" : null}
+      {badgeText(row.unread)}
+    </SidebarMenuBadge>
+  )
+}
+
+function ChatSection({ title, rows, pathname, action, avatars }: { title: string; rows: SidebarChat[]; pathname: string; action: { label: string; to: string }; avatars?: boolean }) {
+  if (!rows.length) return null
+  const unread = rows.filter((r) => r.unread > 0).length
+  // Unread first so nothing waiting falls below the fold, then the list's order.
+  const ordered = [...rows].sort((a, b) => Number(b.unread > 0) - Number(a.unread > 0))
+  const shown = ordered.slice(0, CHATS_SHOWN)
+  return (
+    <Section title={title} count={unread ? `${unread} unread` : undefined} action={action}>
+      <SidebarMenu>
+        {shown.map((r) => (
+          <SidebarMenuItem key={r.id}>
+            <SidebarMenuButton isActive={pathname === r.href} render={<Link to={r.href} />} className={cn(r.unread ? "font-medium" : "text-sidebar-foreground/75")}>
+              {avatars ? <ActorAvatar model={r.agentModel} name={r.title} status={r.agentId != null ? (r.online ? "running" : "offline") : undefined} size="xs" /> : <HashIcon className="text-muted-foreground" />}
+              <span>{r.title}</span>
+            </SidebarMenuButton>
+            <ChatBadge row={r} />
+          </SidebarMenuItem>
+        ))}
+        {ordered.length > CHATS_SHOWN ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton size="sm" className="text-xs text-muted-foreground" render={<Link to="/v3/chat" />}>
+              All {ordered.length} in Chat
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null}
+      </SidebarMenu>
+    </Section>
+  )
+}
+
+/// The design's Create (+) menu: everything you can start from anywhere.
+function CreateMenu() {
+  const detail = useDetail()
+  const navigate = useNavigate()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button size="icon-sm" aria-label="Create" title="Create" />}>
+        <PlusIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-56" align="end">
+        <DropdownMenuItem onClick={() => detail.open({ kind: "new-task", status: "not_started" })}>
+          <CircleDotIcon />
+          New task
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/v3/chat?new=dm")}>
+          <MessageSquareIcon />
+          New message
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/v3/chat?new=room")}>
+          <HashIcon />
+          New room
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => navigate("/v3/agents/launch")}>
+          <TerminalIcon />
+          Launch an agent
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/v3/agents/new")}>
+          <BotIcon />
+          Add an agent
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/// Rail mode keeps who is live in view: their avatars under the nav.
+function RailAgents({ agents }: { agents: LiveAgent[] }) {
+  if (!agents.length) return null
+  return (
+    <SidebarGroup className="hidden group-data-[collapsible=icon]:flex">
+      <div className="mx-auto mb-2 h-px w-6 bg-sidebar-border" />
+      <div className="flex flex-col items-center gap-2">
+        {agents.map((a) => (
+          <Link key={a.id} to={`/v3/agents/${a.id}`} title={`${a.name}, ${a.doing}`} aria-label={`${a.name}, ${a.doing}`}>
+            <ActorAvatar model={a.model} name={a.name} status={a.doing === "Online" ? "idle" : "running"} size="sm" />
+          </Link>
+        ))}
+      </div>
+    </SidebarGroup>
   )
 }
 
@@ -132,8 +323,9 @@ function LiveStatus() {
 
 export function V3Shell({ title, actions, flush, children }: { title: string; actions?: ReactNode; flush?: boolean; children: ReactNode }) {
   const { pathname } = useLocation()
-  const detail = useDetail()
   const { counts } = useWorkspace()
+  const side = useSidebarData()
+  const navCounts: NavCounts = { ...counts, inbox: side.inbox, chat: side.chat.unread, decisions: side.decisions }
   const active = activeNavId(pathname)
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -163,31 +355,27 @@ export function V3Shell({ title, actions, flush, children }: { title: string; ac
               Search
               <Kbd className="ml-auto">Ctrl K</Kbd>
             </Button>
-            <Button size="icon-sm" aria-label="New task" title="New task" onClick={() => detail.open({ kind: "new-task", status: "not_started" })}>
-              <PlusIcon />
-            </Button>
+            <CreateMenu />
           </div>
         </SidebarHeader>
         <SidebarContent>
-          {V3_NAV.map((group) => {
+          {V3_NAV.map((group, gi) => {
             const menu = (
               <SidebarMenu>
-                {group.items.map((item) => (
-                  <NavLink key={item.id} item={item} active={item.id === active} counts={counts} />
-                ))}
+                {group.items
+                  .filter((item) => !item.paletteOnly)
+                  .map((item) => (
+                    <NavLink key={item.id} item={item} active={item.id === active} counts={navCounts} mention={side.chat.mention} />
+                  ))}
               </SidebarMenu>
             )
-            if (!group.collapsible) {
-              return (
-                <SidebarGroup key={group.title}>
-                  <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
-                  <SidebarGroupContent>{menu}</SidebarGroupContent>
-                </SidebarGroup>
-              )
-            }
-            const inGroup = group.items.some((i) => i.id === active)
-            return (
-              <Collapsible key={`${group.title}-${inGroup}`} defaultOpen={inGroup} className="group/collapsible">
+            const block = !group.collapsible ? (
+              <SidebarGroup key={group.title}>
+                <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
+                <SidebarGroupContent>{menu}</SidebarGroupContent>
+              </SidebarGroup>
+            ) : (
+              <Collapsible key={`${group.title}-${group.items.some((i) => i.id === active)}`} defaultOpen={group.items.some((i) => i.id === active)} className="group/collapsible">
                 <SidebarGroup>
                   <SidebarGroupLabel render={<CollapsibleTrigger />}>
                     {group.title}
@@ -199,7 +387,19 @@ export function V3Shell({ title, actions, flush, children }: { title: string; ac
                 </SidebarGroup>
               </Collapsible>
             )
+            // The design puts Live now straight under Work.
+            return gi === 0 ? (
+              <div key={group.title} className="contents">
+                {block}
+                <LiveNow agents={side.agents} />
+              </div>
+            ) : (
+              block
+            )
           })}
+          <RailAgents agents={side.agents} />
+          <ChatSection title="Rooms" rows={side.rooms} pathname={pathname} action={{ label: "New room", to: "/v3/chat?new=room" }} />
+          <ChatSection title="Direct messages" rows={side.dms} pathname={pathname} action={{ label: "New message", to: "/v3/chat?new=dm" }} avatars />
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu>

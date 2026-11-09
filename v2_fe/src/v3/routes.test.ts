@@ -44,11 +44,13 @@ describe("safeNextPath", () => {
 describe("v3GatePaths", () => {
   it("lets a page draw on several slices", async () => {
     const { v3GatePaths } = await import("./routes")
-    expect(v3GatePaths("/v3/agents/1")).toEqual(["/dashboard/api", "/dashboard/board"])
-    expect(v3GatePaths("/v3/board")).toEqual(["/dashboard/board"])
+    expect(v3GatePaths("/v3/agents/1")).toEqual(["/dashboard/api", "/dashboard/board", "/dashboard/design"])
+    expect(v3GatePaths("/v3/board")).toEqual(["/dashboard/board", "/dashboard/design"])
     expect(v3GatePaths("/v3/media")).toEqual(["/dashboard/design"])
-    expect(v3GatePaths("/v3/project/workflow")).toEqual(["/dashboard/api", "/dashboard/board"])
-    expect(v3GatePaths("/v3/project/settings")).toEqual(["/dashboard/api"])
+    expect(v3GatePaths("/v3/project/workflow")).toEqual(["/dashboard/api", "/dashboard/board", "/dashboard/design"])
+    expect(v3GatePaths("/v3/project/settings")).toEqual(["/dashboard/api", "/dashboard/design"])
+    // Public pages have no sidebar, so no channel list.
+    expect(v3GatePaths("/v3/login")).toEqual(["/v3/login"])
     expect(v3GatePaths("/dashboard/x")).toEqual(["/dashboard/x"])
   })
 })

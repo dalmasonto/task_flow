@@ -55,11 +55,16 @@ const GATE_MAP: [prefix: string, v2: string | string[]][] = [
 /// Every v2 gate path a v3 route needs (most need one; some, like the agents
 /// pages, draw on several slices). Non-v3 paths pass through unchanged.
 export function v3GatePaths(pathname: string): string[] {
-  for (const [prefix, v2] of GATE_MAP) {
-    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return Array.isArray(v2) ? v2 : [v2]
-  }
-  return [pathname]
+  const hit = GATE_MAP.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+  const paths = hit ? (Array.isArray(hit[1]) ? hit[1] : [hit[1]]) : [pathname]
+  // The sidebar lists Rooms and Direct messages on every app page (tf-shell),
+  // so every app route also takes the channel list: the design gate's
+  // `chatChannels`, 2 queries, not the chat slice's 6.
+  if (v3RouteKind(pathname) !== "app" || paths.includes(SIDEBAR_GATE)) return paths
+  return [...paths, SIDEBAR_GATE]
 }
+
+const SIDEBAR_GATE = "/dashboard/design"
 
 export function v3GatePath(pathname: string): string {
   return v3GatePaths(pathname)[0]

@@ -120,14 +120,27 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
   activeId: string | null
   onOpen: (id: string) => void
   runtimeOf: (title: string) => string | null
-  onNew: boolean
+  /// ?new=dm / ?new=room (the sidebar's Create menu): open the new
+  /// conversation panel on that tab.
+  onNew: "direct" | "group" | null
   candidates: ConversationCandidate[]
   onCreate: (kind: "direct" | "group", title: string, members: ConversationCandidate["member"][]) => Promise<void>
 }) {
   const now = useLivenessNow()
   const [filter, setFilter] = useState<ChatFilter>("all")
   const [query, setQuery] = useState("")
-  const [newOpen, setNewOpen] = useState(onNew)
+  const [newOpen, setNewOpen] = useState(onNew != null)
+  const [newMode, setNewMode] = useState<"direct" | "group">(onNew ?? "direct")
+  // The Create menu can ask again while this page is already up (state
+  // adjusted during render when the prop changes, not in an effect).
+  const [askedNew, setAskedNew] = useState(onNew)
+  if (onNew !== askedNew) {
+    setAskedNew(onNew)
+    if (onNew) {
+      setNewMode(onNew)
+      setNewOpen(true)
+    }
+  }
   const filters = filtersFor(hasMentions, following != null)
   // A tab that went away (older server) falls back to All.
   const active: ChatFilter = filters.some((f) => f.id === filter) ? filter : "all"
@@ -194,7 +207,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
             <PencilIcon />
           </Button>
         </div>
-        {newOpen ? <NewConversationPanel candidates={candidates} onCreate={onCreate} onClose={() => setNewOpen(false)} /> : null}
+        {newOpen ? <NewConversationPanel key={newMode} initialMode={newMode} candidates={candidates} onCreate={onCreate} onClose={() => setNewOpen(false)} /> : null}
         <div role="tablist" aria-label="Filter conversations" className="flex gap-1">
           {filters.map((f) => (
             <button
@@ -550,7 +563,7 @@ function ChatWorkspace({ project }: { project: Project }) {
               activeId={selectedId}
               onOpen={open}
               runtimeOf={runtimeOf}
-              onNew={params.get("new") === "dm"}
+              onNew={params.get("new") === "dm" ? "direct" : params.get("new") === "room" ? "group" : null}
               candidates={candidates}
               onCreate={createConversation}
               hasMentions={chatSummary.summary != null}

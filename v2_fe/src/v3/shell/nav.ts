@@ -1,12 +1,12 @@
 /// The v3 sidebar's navigation, from the design's `tf-shell` (docs/v3-design/
-/// components/tf-shell.js). Only surfaces that exist are listed: stage-3 items
-/// (database) join once their pages are built,
-/// so the shell never links to something that isn't there.
+/// components/tf-shell.js), in its order. Only surfaces that exist are listed:
+/// Database joins once its page is built, so the shell never links to
+/// something that isn't there.
 import {
   ActivityIcon,
   BotIcon,
-  CalendarClockIcon,
   CheckCheckIcon,
+  FileTextIcon,
   GaugeIcon,
   HouseIcon,
   ImageIcon,
@@ -23,7 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-export type NavCount = "pendingReviews" | "pendingInvites" | "designUnread" | "onlineAgents"
+export type NavCount = "pendingReviews" | "pendingInvites" | "designUnread" | "onlineAgents" | "inbox" | "chat" | "decisions"
 
 export type NavItem = {
   id: string
@@ -34,6 +34,9 @@ export type NavItem = {
   count?: NavCount
   /// A live dot (agents running) instead of a plain count.
   live?: boolean
+  /// Reachable from the palette but not drawn in the sidebar (the design's
+  /// sidebar has no Home; the page is still there).
+  paletteOnly?: boolean
 }
 
 export type NavGroup = {
@@ -46,8 +49,8 @@ export const V3_NAV: NavGroup[] = [
   {
     title: "Work",
     items: [
-      { id: "home", label: "Home", icon: HouseIcon, href: "/v3/home" },
-      { id: "inbox", label: "Inbox", icon: InboxIcon, href: "/v3/inbox" },
+      { id: "home", label: "Home", icon: HouseIcon, href: "/v3/home", paletteOnly: true },
+      { id: "inbox", label: "Inbox", icon: InboxIcon, href: "/v3/inbox", count: "inbox" },
       {
         id: "overview",
         label: "Overview",
@@ -55,7 +58,7 @@ export const V3_NAV: NavGroup[] = [
         href: "/v3/overview",
       },
       { id: "board", label: "Board", icon: KanbanIcon, href: "/v3/board" },
-      { id: "chat", label: "Chat", icon: MessagesSquareIcon, href: "/v3/chat" },
+      { id: "chat", label: "Chat", icon: MessagesSquareIcon, href: "/v3/chat", count: "chat" },
       {
         id: "agents",
         label: "Agents",
@@ -76,30 +79,10 @@ export const V3_NAV: NavGroup[] = [
   {
     title: "Insights",
     items: [
-      {
-        id: "activity",
-        label: "Activity",
-        icon: ActivityIcon,
-        href: "/v3/activity",
-      },
-      {
-        id: "usage",
-        label: "Usage",
-        icon: GaugeIcon,
-        href: "/v3/usage",
-      },
-      {
-        id: "decisions",
-        label: "Decisions",
-        icon: ScaleIcon,
-        href: "/v3/decisions",
-      },
-      {
-        id: "daily-update",
-        label: "Daily update",
-        icon: CalendarClockIcon,
-        href: "/v3/daily-update",
-      },
+      { id: "usage", label: "Usage", icon: GaugeIcon, href: "/v3/usage" },
+      { id: "decisions", label: "Decisions", icon: ScaleIcon, href: "/v3/decisions", count: "decisions" },
+      { id: "activity", label: "Activity", icon: ActivityIcon, href: "/v3/activity" },
+      { id: "daily-update", label: "Daily update", icon: FileTextIcon, href: "/v3/daily-update" },
     ],
   },
   {
