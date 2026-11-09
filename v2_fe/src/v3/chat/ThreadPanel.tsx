@@ -5,7 +5,7 @@
 /// thread bus (App's one stream publishes every threaded row), so nothing
 /// here opens a stream. A reply's audience is computed by the server: the
 /// root's author, earlier repliers and anyone mentioned by chip.
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { BellIcon, BellOffIcon, SendIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -27,6 +27,7 @@ import { markThreadRead, setThreadFollowed } from "@/lib/chat-summary-api"
 import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
 import { timeAgo } from "../lib/time"
+import { focusComposerIn } from "./focus"
 import { mergeThread } from "./thread-logic"
 
 function Row({ m, me, now }: { m: ThreadMessage; me: number | null; now: number }) {
@@ -51,8 +52,11 @@ function Row({ m, me, now }: { m: ThreadMessage; me: number | null; now: number 
   )
 }
 
-export function ThreadPanel({ channel, root, currentUser, onClose, following = null, onFollowChanged }: {
+export function ThreadPanel({ channel, root, currentUser, onClose, following = null, onFollowChanged, openedByTap = false }: {
   channel: number
+  /// #1092: opened by a click or tap (not a deep link), so even a touch
+  /// screen may focus the reply box.
+  openedByTap?: boolean
   root: number
   currentUser: AuthUser | null
   onClose: () => void
@@ -62,6 +66,15 @@ export function ThreadPanel({ channel, root, currentUser, onClose, following = n
   onFollowChanged?: () => void
 }) {
   const now = useLivenessNow()
+  // #1092: opening a thread puts the cursor in its reply box (same guards as
+  // the room composer). The panel is keyed per thread, so this runs per open.
+  const replyForm = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => focusComposerIn(replyForm.current, { byTap: openedByTap }))
+    return () => cancelAnimationFrame(raf)
+    // Once per open: the panel remounts for another thread.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const key = `${channel}:${root}`
   const [loaded, setLoaded] = useState<{ key: string; thread: Thread | null; error: string | null } | null>(null)
   const [draft, setDraft] = useState("")
@@ -196,7 +209,7 @@ export function ThreadPanel({ channel, root, currentUser, onClose, following = n
           </>
         )}
       </div>
-      <form onSubmit={(e) => void send(e)} className="space-y-2 border-t border-border p-3">
+      <form ref={replyForm} onSubmit={(e) => void send(e)} className="space-y-2 border-t border-border p-3">
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

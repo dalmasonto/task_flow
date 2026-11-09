@@ -322,7 +322,7 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
   const open = (chatId: string) => {
     navigate(`/v3/chat/${chatIdToSlug(chatId)}`)
     // Clicking a row (even the open one) means "I want to type here" (#TSK1092).
-    requestAnimationFrame(() => focusComposerIn(pane.current))
+    requestAnimationFrame(() => focusComposerIn(pane.current, { byTap: true }))
   }
 
   const candidates = useMemo<ConversationCandidate[]>(() => {
@@ -383,7 +383,10 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
   // counts load for the roots on screen and refresh when a thread row arrives.
   const channelId = channelIdOf(selectedId)
   const threadParam = Number(params.get("thread")) || null
+  // #1092: a thread opened by a click may focus its reply box even on touch.
+  const [threadTapped, setThreadTapped] = useState(false)
   const openThread = (rootId: string) => {
+    setThreadTapped(true)
     const next = new URLSearchParams(params)
     next.set("thread", rootId)
     setParams(next, { replace: false })
@@ -664,6 +667,7 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
               onClose={closeThread}
               following={chatSummary.following ? chatSummary.following.some((t) => t.root === threadParam) : null}
               onFollowChanged={chatSummary.reload}
+              openedByTap={threadTapped}
             />
           </div>
         ) : null}

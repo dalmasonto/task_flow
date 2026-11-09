@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { TaskflowAgentMessage, TaskflowAgentSession } from "@/api/client"
 
-import { agentConnectState, handshakeStage, initCommand, kickoffBody, linkDrafts, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
+import { agentConnectState, draftsWithLinked, handshakeStage, initCommand, kickoffBody, linkDrafts, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
 
 const msg = (id: number, agent: number | null): TaskflowAgentMessage =>
   ({ id, sender_kind: agent == null ? "user" : "agent", sender_agent: agent }) as unknown as TaskflowAgentMessage
@@ -109,5 +109,21 @@ describe("linkDrafts", () => {
     expect(calls).toEqual(["main", "reviewer", "reviewer"]) // exactly one agent 1
     expect(out.map((a) => [a.profile, a.key])).toEqual([["main", "tfk_main"], ["reviewer", "tfk_reviewer"]])
     expect(stored).toEqual(out)
+  })
+})
+
+describe("draftsWithLinked (#1119)", () => {
+  const defaults: [AgentDraft, AgentDraft] = [
+    { model: "claude", displayName: "Claude", profile: "main" },
+    { model: "codex", displayName: "Codex", profile: "reviewer" },
+  ]
+  it("keeps the defaults when nothing has linked", () => {
+    expect(draftsWithLinked(defaults, [])).toEqual(defaults)
+  })
+  it("puts a linked first agent back in place, so a retry reuses it", () => {
+    const linked: LinkedAgent[] = [{ model: "gemini", displayName: "Gem", profile: "gem", agentId: 9, key: "k" }]
+    const [a, b] = draftsWithLinked(defaults, linked)
+    expect(a).toEqual({ model: "gemini", displayName: "Gem", profile: "gem" })
+    expect(b).toEqual(defaults[1])
   })
 })

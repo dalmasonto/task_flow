@@ -94,6 +94,18 @@ export async function linkDrafts(
   return out
 }
 
+/// #1119: the Agents step's drafts, with every agent that already linked put
+/// back in its place. A linked agent's profile and model are fixed from then
+/// on (changing them would make a retry mint a second agent and orphan the
+/// first one's unseen key), so its card shows these values read-only.
+export function draftsWithLinked(defaults: [AgentDraft, AgentDraft], linked: LinkedAgent[]): [AgentDraft, AgentDraft] {
+  const at = (i: 0 | 1): AgentDraft => {
+    const l = linked[i]
+    return l ? { displayName: l.displayName, profile: l.profile, model: l.model } : defaults[i]
+  }
+  return [at(0), at(1)]
+}
+
 export type ConnectState = "waiting" | "connected"
 
 export function agentConnectState(agentId: number, sessions: TaskflowAgentSession[], now: number): { state: ConnectState; lastSeen: string | null } {

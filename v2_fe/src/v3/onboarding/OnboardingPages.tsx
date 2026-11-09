@@ -27,7 +27,7 @@ import { CopyBlock } from "../components/copy-block"
 import { ModelPicker } from "../components/model-picker"
 import { BrandMark } from "../marketing/public-chrome"
 import { useWorkspace } from "../workspace"
-import { agentConnectState, handshakeStage, initCommand, kickoffBody, linkDrafts, PAIRINGS, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
+import { agentConnectState, draftsWithLinked, handshakeStage, initCommand, kickoffBody, linkDrafts, PAIRINGS, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
 import { onboardingStore } from "./onboarding-store"
 
 const STEPS = ["Project", "Agents", "Connect", "Say hello"] as const
@@ -214,14 +214,19 @@ export function OnboardingAgentsPage() {
   const [searchParams] = useSearchParams()
   const initial = PAIRINGS.find((p) => p.id === searchParams.get("pairing")) ?? PAIRINGS[0]
   const [pairing, setPairing] = useState(initial.id)
-  const [agents, setAgents] = useState<[AgentDraft, AgentDraft]>(initial.agents)
+  // #1119: agents that already linked (a retry after agent 2 failed, or Back
+  // from Connect) keep their profile and model; their cards are read-only.
+  const [linked, setLinked] = useState<LinkedAgent[]>(() => onboardingStore.agents())
+  const [agents, setAgents] = useState<[AgentDraft, AgentDraft]>(() => draftsWithLinked(initial.agents, onboardingStore.agents()))
   const [errors, setErrors] = useState<(string | null)[]>([null, null])
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   if (!projectId) return <Navigate to="/v3/onboarding/project" replace />
 
+  const isLinked = (i: 0 | 1) => linked[i] != null
   const update = (i: 0 | 1, patch: Partial<AgentDraft>) => {
+    if (isLinked(i)) return
     setPairing("")
     setAgents((cur) => {
       const next = [...cur] as [AgentDraft, AgentDraft]
@@ -242,7 +247,10 @@ export function OnboardingAgentsPage() {
         onboardingStore.agents(),
         (a) => linkAgent({ project: Number(projectId), display_name: a.displayName.trim(), profile: a.profile, runtime: a.model }),
         // Stored after every link, so a failure on agent 2 keeps agent 1's key.
-        (soFar) => onboardingStore.setAgents(soFar),
+        (soFar) => {
+          onboardingStore.setAgents(soFar)
+          setLinked(soFar)
+        },
       )
       navigate("/v3/onboarding/connect")
     } catch (err) {
@@ -267,13 +275,15 @@ export function OnboardingAgentsPage() {
               type="button"
               role="radio"
               aria-checked={pairing === p.id}
+              disabled={linked.length > 0}
+              title={linked.length > 0 ? "An agent is already linked; its profile and model stay as they are." : undefined}
               onClick={() => {
                 setPairing(p.id)
-                setAgents(p.agents)
+                setAgents(draftsWithLinked(p.agents, linked))
                 setErrors([null, null])
               }}
               className={cn(
-                "flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors",
+                "flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                 pairing === p.id ? "border-ring bg-accent/50 ring-2 ring-ring/20" : "border-border hover:bg-accent/40",
               )}
             >
@@ -297,10 +307,18 @@ export function OnboardingAgentsPage() {
             <legend className="sr-only">{i === 0 ? "First agent" : "Second agent"}</legend>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-medium">{i === 0 ? "First agent" : "Second agent"}</h2>
-              <span className="text-xs text-muted-foreground">
-                Profile <code className="font-mono">{agents[i].profile}</code>
-              </span>
+              {isLinked(i) ? (
+                <Badge variant="secondary" title="Already created. Its profile and model are fixed, so a retry reuses it.">
+                  <CheckIcon />
+                  Linked
+                </Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  Profile <code className="font-mono">{agents[i].profile}</code>
+                </span>
+              )}
             </div>
+            <fieldset disabled={isLinked(i)} className="contents">
             <ModelPicker name={i === 0 ? "First agent" : "Second agent"} value={agents[i].model} onChange={(m) => update(i, { model: m })} />
             <FieldGroup className="mt-5 gap-4 sm:grid sm:grid-cols-2">
               <Field data-invalid={errors[i] && !/Profile|own profile/.test(errors[i]!) ? true : undefined}>
@@ -314,10 +332,12 @@ export function OnboardingAgentsPage() {
                   value={agents[i].profile}
                   onChange={(e) => update(i, { profile: e.target.value.toLowerCase() })}
                   spellCheck={false}
+                  readOnly={isLinked(i)}
                   className="h-10 rounded-xl font-mono"
                 />
               </Field>
             </FieldGroup>
+            </fieldset>
             {errors[i] ? <FieldError className="mt-2">{errors[i]}</FieldError> : null}
           </fieldset>
         ))}

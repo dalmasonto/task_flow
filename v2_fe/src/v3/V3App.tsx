@@ -235,6 +235,8 @@ export function V3App() {
             <Route path="/v3/agents" element={<AgentsPage />} />
             <Route path="/v3/agents/new" element={<AgentNewPage />} />
             <Route path="/v3/agents/wakeups" element={<WakeupsPage />} />
+            {/* The design names the wake-up rules page /subscriptions. */}
+            <Route path="/v3/subscriptions" element={<Navigate to="/v3/agents/wakeups" replace />} />
             <Route path="/v3/agents/launch" element={<AgentLaunchPage />} />
             <Route path="/v3/agents/:id" element={<AgentPage />} />
             <Route path="/v3/activity" element={<ActivityPage />} />

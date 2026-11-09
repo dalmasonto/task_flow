@@ -12,4 +12,9 @@ describe("canTakeFocus", () => {
     expect(canTakeFocus({ ...calm, overlayOpen: true })).toBe(false)
     expect(canTakeFocus({ ...calm, inOtherField: true })).toBe(false)
   })
+  it("on touch, only after a real tap (no keyboard on page load)", () => {
+    expect(canTakeFocus({ ...calm, touch: true })).toBe(false)
+    expect(canTakeFocus({ ...calm, touch: true, byTap: true })).toBe(true)
+    expect(canTakeFocus({ ...calm, touch: false })).toBe(true)
+  })
 })
