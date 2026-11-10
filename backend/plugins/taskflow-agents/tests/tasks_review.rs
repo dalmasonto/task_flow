@@ -409,6 +409,7 @@ async fn human_review_notifies_the_operator_agent_when_not_assigned() {
             created_at: None,
             github_repo: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("create task")

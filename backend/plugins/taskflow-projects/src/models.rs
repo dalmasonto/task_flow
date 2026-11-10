@@ -221,6 +221,11 @@ pub struct TaskflowUserSettings {
     /// read it through `whoami` to write dates in the person's time.
     #[umbral(string, max_length = 64)]
     pub timezone: Option<String>,
+    /// #1135: the profile photo's storage key (`<uuid>-avatar.webp`). Written
+    /// only by `POST /api/taskflow/me/avatar`, which re-encodes the upload;
+    /// `media_access` lets any signed-in caller read a current avatar key.
+    #[umbral(string, max_length = 255)]
+    pub avatar: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]

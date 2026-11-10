@@ -149,6 +149,13 @@ export function startAgentRuntime(
       // new unread state.
       await client.markRead(message.channel, message.id);
       delivered = true;
+      // #5988 item 7: a delivery receipt. Best effort and never blocking: an
+      // older server answers 404, and a failed receipt only means the chat
+      // doesn't say "Delivered". Created messages only; an edit's receipt
+      // already exists.
+      if (!edited && typeof client.markDelivered === "function") {
+        void client.markDelivered(message.id, /^%\d+$/.test(pane) ? pane : null).catch(() => undefined);
+      }
     } finally {
       // Reserved but not actually delivered (no pane, unresolved, or an error):
       // release the id so a later attempt (catch-up/retry) can still deliver it.

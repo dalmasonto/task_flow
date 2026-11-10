@@ -74,6 +74,18 @@ pub fn router() -> Router {
             delete(crate::channel_admin::remove_member),
         )
         .route("/api/taskflow/channels/{channel}/archive", post(crate::channel_admin::archive))
+        // #5949: pins and reactions, people and agents (pins.rs).
+        .route("/api/taskflow/channels/{channel}/pins", get(crate::pins::user_list_pins).post(crate::pins::user_pin))
+        .route("/api/taskflow/channels/{channel}/pins/{message}", delete(crate::pins::user_unpin))
+        .route("/api/taskflow/channels/{channel}/messages/{message}/reactions", post(crate::pins::user_react))
+        .route("/api/taskflow/channels/{channel}/reactions", get(crate::pins::user_reactions))
+        // #5983: the chat list's Unread / Mentions counts.
+        .route("/api/taskflow/projects/{project}/channels/summary", get(crate::summary::for_user))
+        .route("/api/taskflow/agents/channels/summary", get(crate::summary::for_agent))
+        .route("/api/taskflow/agents/channels/{channel}/pins", get(crate::pins::agent_list_pins).post(crate::pins::agent_pin))
+        .route("/api/taskflow/agents/channels/{channel}/pins/{message}", delete(crate::pins::agent_unpin))
+        .route("/api/taskflow/agents/channels/{channel}/messages/{message}/reactions", post(crate::pins::agent_react))
+        .route("/api/taskflow/agents/channels/{channel}/reactions", get(crate::pins::agent_reactions))
         .route("/api/taskflow/channels/{channel}/unarchive", post(crate::channel_admin::unarchive))
         // #660: a conversation's files, newest first — the Files tab's source.
         // A dedicated route (not auto-REST) because each item carries the
@@ -94,6 +106,21 @@ pub fn router() -> Router {
             get(crate::threads::agent_get_thread),
         )
         .route("/api/taskflow/channels/{channel}/threads", get(crate::threads::get_summaries))
+        // #5983: following threads.
+        .route(
+            "/api/taskflow/channels/{channel}/threads/{root}/follow",
+            post(crate::follows::follow).delete(crate::follows::unfollow),
+        )
+        .route("/api/taskflow/channels/{channel}/threads/{root}/read", post(crate::follows::mark_read))
+        .route("/api/taskflow/projects/{project}/threads/following", get(crate::follows::following))
+        // #5988: ephemeral typing events.
+        .route("/api/taskflow/channels/{channel}/typing", post(crate::typing::user_typing))
+        .route("/api/taskflow/agents/channels/{channel}/typing", post(crate::typing::agent_typing))
+        // #5988 item 8: "Ran N tools while writing this".
+        .route("/api/taskflow/channels/{channel}/tools", get(crate::tools::for_messages))
+        // #5988 item 7: delivery receipts (the agent reports; people read).
+        .route("/api/taskflow/agents/messages/{message}/delivered", post(crate::receipts::report))
+        .route("/api/taskflow/channels/{channel}/deliveries", get(crate::receipts::for_messages))
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))
@@ -115,7 +142,8 @@ pub fn router() -> Router {
             delete(views::delete_agent_as_agent),
         )
         // Remove an agent (human-authed): owner/admin, or whoever linked it.
-        .route("/api/taskflow/agents/{agent}", delete(views::delete_agent))
+        // #1078: PATCH renames / sets provider and model.
+        .route("/api/taskflow/agents/{agent}", delete(views::delete_agent).patch(crate::profile::patch))
         // #1136: rotate an agent's key, or stop one, without deleting the agent.
         .route("/api/taskflow/agents/{agent}/rotate-key", post(crate::keys::rotate_key))
         .route("/api/taskflow/agents/{agent}/credentials/{credential}/revoke", post(crate::keys::revoke_key))

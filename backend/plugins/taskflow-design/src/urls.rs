@@ -84,6 +84,9 @@ pub fn router() -> Router {
         )
         // #1123: pin threads, replies and the thread read (people).
         .route("/api/design/{project}/comments/{id}/replies", post(crate::threads::add_reply))
+        // #5955: a person confirms a fix (Done), or reopens it.
+        .route("/api/design/{project}/comments/{id}/resolve", post(crate::comment_lifecycle::resolve))
+        .route("/api/design/{project}/comments/{id}/reopen", post(crate::comment_lifecycle::reopen))
         .route("/api/design/{project}/comments/{id}/thread", get(crate::threads::get_thread))
         .route(
             "/api/design/{project}/layout",

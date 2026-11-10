@@ -100,6 +100,10 @@ pub fn install() {
         register_model::<agents::TaskflowAgentPrompt>();
         register_model::<agents::TaskflowTaskReview>();
         register_model::<agents::TaskflowTerminalInput>();
+        register_model::<agents::TaskflowMessagePin>();
+        register_model::<agents::TaskflowMessageReaction>();
+        register_model::<agents::TaskflowThreadFollow>();
+        register_model::<agents::TaskflowMessageDelivery>();
         register_model::<agents::TaskflowRealtimeTicket>();
 
         register_model::<design::DesignFile>();
@@ -117,6 +121,7 @@ pub fn install() {
         register_model::<tasks::TaskflowTaskActivity>();
         register_model::<tasks::TaskflowTaskSession>();
         register_model::<tasks::TaskflowTaskAttachment>();
+        register_model::<tasks::TaskflowProjectStatus>();
     });
 }
 

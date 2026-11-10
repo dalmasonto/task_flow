@@ -657,6 +657,16 @@ export class TaskflowClient {
     });
   }
 
+  /** `POST /agents/messages/{id}/delivered` — #5988 item 7: tell the server
+   *  this agent's pane received the message ("Delivered to X, pane %4").
+   *  Idempotent server-side (one receipt per message and agent). */
+  markDelivered(message: number, pane: string | null): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/messages/${message}/delivered`, {
+      body: pane ? { pane } : {},
+      idempotent: true,
+    });
+  }
+
   // ---- WRITES: tasks -------------------------------------------------------
 
   /** `POST /agents/tasks` — author a task in the agent's project (optionally claim). */

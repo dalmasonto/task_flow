@@ -44,6 +44,10 @@ fn falls_back_to_the_projects_group_when_project_is_missing() {
 fn group_policy_accepts_per_table_groups_and_presence() {
     assert!(backend::realtime::can_join_group("project:7:messages"));
     assert!(backend::realtime::can_join_group("project:7:presence"));
+    // The migrate-batch groups the v3 client joins behind BATCH_LIVE (#6005, #6020).
+    for suffix in ["message_pins", "message_reactions", "message_deliveries", "project_statuses", "typing"] {
+        assert!(backend::realtime::can_join_group(&format!("project:7:{suffix}")), "{suffix}");
+    }
     assert!(backend::realtime::can_join_group("taskflow:projects"));
     assert!(!backend::realtime::can_join_group("project:"));
     assert!(!backend::realtime::can_join_group("nonsense"));

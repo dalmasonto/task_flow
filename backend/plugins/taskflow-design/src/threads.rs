@@ -177,12 +177,14 @@ async fn thread(comment: DesignComment) -> Reply {
         None => None,
     };
     let status = serde_json::to_value(comment.status).unwrap_or(Value::Null);
-    let resolved = matches!(status.as_str(), Some("addressed") | Some("dismissed"));
+    let resolved = matches!(status.as_str(), Some("addressed") | Some("dismissed") | Some("resolved"));
     Ok(Json(json!({
         "root": {
             "id": comment.id, "page_path": comment.page_path, "component_name": comment.component_name,
             "body": comment.body, "author": comment.author, "status": status, "resolved": resolved,
             "resolution_note": comment.resolution_note, "thread_id": comment.thread_id,
+            "resolved_by_label": comment.resolved_by_label, "resolved_at": comment.resolved_at,
+            "task": comment.task.as_ref().map(|t| t.id()),
             "created_at": comment.created_at,
         },
         "sent_to": sent_to,

@@ -872,6 +872,9 @@ pub async fn create_comment(
             orphaned: false,
             sent_to_agent: None,
             created_at: None,
+            resolved_by_label: None,
+            resolved_at: None,
+            task: None,
         })
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -894,6 +897,17 @@ pub struct UpdateCommentInput {
     pub resolution_note: Option<String>,
     #[serde(default)]
     pub orphaned: Option<bool>,
+    /// #5955: the comment's task (same project); `null` unlinks it.
+    #[serde(default, deserialize_with = "double_option_i64")]
+    pub task: Option<Option<i64>>,
+}
+
+/// Absent → `None`; `null` → `Some(None)`; a value → `Some(Some(v))`.
+fn double_option_i64<'de, D>(d: D) -> Result<Option<Option<i64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::deserialize(d)?))
 }
 
 /// `PATCH /api/design/{project}/comments/{id}` — status / body transitions.
@@ -911,6 +925,29 @@ pub async fn update_comment(
     let mut v = serde_json::Map::new();
     if let Some(status) = input.status {
         v.insert("status".into(), json!(crate::comment_write::status_str(status)));
+        // #5955: a resolution is recorded with who and when, and cleared by
+        // any other status.
+        if status == CommentStatus::Resolved {
+            v.insert("resolved_by_label".into(), json!(crate::comment_lifecycle::person_label(user_id, project_id).await));
+            v.insert("resolved_at".into(), json!(chrono::Utc::now()));
+        } else {
+            v.insert("resolved_by_label".into(), serde_json::Value::Null);
+            v.insert("resolved_at".into(), serde_json::Value::Null);
+        }
+    }
+    if let Some(task) = input.task {
+        if let Some(t) = task {
+            let ok = taskflow_tasks::models::TaskflowTask::objects()
+                .filter(taskflow_tasks::models::taskflow_task::ID.eq(t) & taskflow_tasks::models::taskflow_task::PROJECT.eq(project_id))
+                .first()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .is_some();
+            if !ok {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+        v.insert("task".into(), json!(task));
     }
     if let Some(scope) = input.scope {
         v.insert("scope".into(), serde_json::to_value(scope).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?);

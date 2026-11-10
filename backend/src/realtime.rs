@@ -29,7 +29,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowWakeRule, TaskflowChannelState, TaskflowTaskReview, TaskflowReviewRequest, TaskflowTaskEvidence, TaskflowTerminalInput,
+    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowMessageDelivery, TaskflowMessagePin, TaskflowMessageReaction, TaskflowWakeRule, TaskflowChannelState, TaskflowTaskReview, TaskflowReviewRequest, TaskflowTaskEvidence, TaskflowTerminalInput,
 };
 use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
@@ -40,7 +40,7 @@ use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
 };
 use taskflow_tasks::models::{
-    TaskflowTask, TaskflowTaskActivity, TaskflowTaskRelation, TaskflowTaskSession,
+    TaskflowProjectStatus, TaskflowTask, TaskflowTaskActivity, TaskflowTaskRelation, TaskflowTaskSession,
 };
 use umbral_realtime::{Expose, PresenceSpec, RealtimePlugin};
 
@@ -54,6 +54,12 @@ const MESSAGE_ATTACHMENTS: &str = "message_attachments";
 /// #1099. Id-only, like every chat table: the group is per-PROJECT but answers
 /// follow their CHANNEL, so a projected value would leak DM answers.
 const MESSAGE_ANSWERS: &str = "message_answers";
+/// #5949. Id-only like answers: pins and reactions follow their CHANNEL.
+const MESSAGE_PINS: &str = "message_pins";
+const MESSAGE_REACTIONS: &str = "message_reactions";
+/// #5988 item 7: delivery receipts. Id-only; the client refetches through the
+/// gated `/channels/{c}/deliveries` read.
+const MESSAGE_DELIVERIES: &str = "message_deliveries";
 /// #1095. Id-only for the same reason as answers: claims follow their channel.
 const MESSAGE_CLAIMS: &str = "message_claims";
 /// #1096. Id-only: a DM's state is the DM's, and the group is per-project.
@@ -89,10 +95,15 @@ const PROMPTS: &str = "prompts";
 const PROJECT_MEMBERS: &str = "project_members";
 const PROJECT_INVITES: &str = "project_invites";
 const API_ENDPOINTS: &str = "api_endpoints";
+/// #5907 1b: a project's board columns. Id-only; the board refetches the list.
+const PROJECT_STATUSES: &str = "project_statuses";
 const DESIGN_FILES: &str = "design_files";
 const DESIGN_COMMENTS: &str = "design_comments";
 const DESIGN_LAYOUT: &str = "design_layout";
 const PRESENCE: &str = "presence";
+/// #5988: "X is writing", published server-side by `taskflow_agents::typing`
+/// (never a model). Shared rooms only; see that module.
+const TYPING: &str = taskflow_agents::typing::SUFFIX;
 
 // The chat tables carry NO projected fields — see the `expose` calls below for
 // why. Their former `*_FIELDS` whitelists are deliberately gone rather than
@@ -265,6 +276,9 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowMessageAttachment>(Expose::to_group_with(|ev| {
             group_for(MESSAGE_ATTACHMENTS, &ev.instance)
         }))
+        .expose::<TaskflowMessagePin>(Expose::to_group_with(|ev| group_for(MESSAGE_PINS, &ev.instance)))
+        .expose::<TaskflowMessageReaction>(Expose::to_group_with(|ev| group_for(MESSAGE_REACTIONS, &ev.instance)))
+        .expose::<TaskflowMessageDelivery>(Expose::to_group_with(|ev| group_for(MESSAGE_DELIVERIES, &ev.instance)))
         .expose::<TaskflowMessageAnswer>(Expose::to_group_with(|ev| {
             group_for(MESSAGE_ANSWERS, &ev.instance)
         }))
@@ -283,6 +297,9 @@ pub fn plugin() -> RealtimePlugin {
         }))
         .expose::<TaskflowProjectApiEndpoint>(Expose::to_group_with(|ev| {
             group_for(API_ENDPOINTS, &ev.instance)
+        }))
+        .expose::<TaskflowProjectStatus>(Expose::to_group_with(|ev| {
+            group_for(PROJECT_STATUSES, &ev.instance)
         }))
         .expose::<TaskflowTask>(Expose::to_group_with(|ev| group_for(TASKS, &ev.instance)))
         .expose::<TaskflowTaskRelation>(Expose::to_group_with(|ev| {
@@ -519,6 +536,9 @@ const ALL_SUFFIXES: &[&str] = &[
     MESSAGES,
     MESSAGE_ATTACHMENTS,
     MESSAGE_ANSWERS,
+    MESSAGE_PINS,
+    MESSAGE_REACTIONS,
+    MESSAGE_DELIVERIES,
     MESSAGE_CLAIMS,
     CHANNEL_STATES,
     CHANNELS,
@@ -546,10 +566,12 @@ const ALL_SUFFIXES: &[&str] = &[
     PROJECT_MEMBERS,
     PROJECT_INVITES,
     API_ENDPOINTS,
+    PROJECT_STATUSES,
     DESIGN_FILES,
     DESIGN_COMMENTS,
     DESIGN_LAYOUT,
     PRESENCE,
+    TYPING,
 ];
 
 fn value_to_group_id(value: &Value) -> Option<String> {
