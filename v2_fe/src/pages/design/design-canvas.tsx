@@ -114,6 +114,7 @@ import {
   type FrameReport,
 } from "./design-route"
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./canvas-zoom"
+import { useIsDark } from "@/v3/shell/theme-action"
 import { shouldCommitMoveEnd } from "./canvas-view"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
@@ -278,6 +279,8 @@ export const DesignCanvas = memo(function DesignCanvas({
    *  anything holding that number. */
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 })
+  // The canvas follows the app theme, like the Database map (Dalmas).
+  const isDark = useIsDark()
   useLayoutEffect(() => {
     const el = surfaceRef.current
     if (!el) return
@@ -570,7 +573,7 @@ export const DesignCanvas = memo(function DesignCanvas({
   return (
     <div
       ref={surfaceRef}
-      className="relative h-full w-full bg-[#0b0b0f] select-none"
+      className="relative h-full w-full bg-muted/30 select-none"
       data-testid="design-canvas-surface"
     >
       <LiveWindowContext.Provider value={liveWindow}>
@@ -625,19 +628,19 @@ export const DesignCanvas = memo(function DesignCanvas({
         deleteKeyCode={inFlow ? ["Backspace", "Delete"] : null}
         connectionLineStyle={{ strokeWidth: 6, stroke: "#6366f1" }}
         proOptions={{ hideAttribution: true }}
-        colorMode="dark"
+        colorMode={isDark ? "dark" : "light"}
         style={{ cursor: panMode ? "grab" : undefined }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#27272a" />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
         <Controls showInteractive={false} position="bottom-left" />
         <MiniMap
           pannable
           zoomable
           position="bottom-right"
-          nodeColor="#3f3f46"
+          nodeColor="var(--muted-foreground)"
           nodeBorderRadius={10}
           maskColor="rgba(0, 0, 0, 0.55)"
-          style={{ background: "#18181b" }}
+          style={{ background: "var(--card)" }}
         />
         <ViewportPortal>
           {/* Selection rect: chrome-owned, drawn over the frame at the captured
@@ -662,7 +665,7 @@ export const DesignCanvas = memo(function DesignCanvas({
         </ViewportPortal>
         {inFlow ? (
           <Panel position="bottom-center">
-            <div className="max-w-md rounded-lg border border-zinc-700 bg-zinc-900/95 px-3 py-2 text-center text-xs text-zinc-300 shadow-sm">
+            <div className="max-w-md rounded-lg border border-border bg-card/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-sm">
               Drag a screen by its title. Drag from a screen's right dot to another's left dot to link them; click a link to
               name or remove it.
               {linkProblemText ? <p className="mt-1 text-rose-300">{linkProblemText}</p> : null}
@@ -1063,11 +1066,11 @@ export function ArtboardHeader({
 
   return (
     <div
-      className="mb-2 flex items-center gap-1.5 overflow-hidden text-xs text-zinc-400"
+      className="mb-2 flex items-center gap-1.5 overflow-hidden text-xs text-muted-foreground"
       style={{ width }}
     >
-      <span className="truncate font-medium text-zinc-200">{label}</span>
-      <span className="shrink-0 text-zinc-500">·</span>
+      <span className="truncate font-medium text-foreground">{label}</span>
+      <span className="shrink-0 text-muted-foreground/70">·</span>
       <span className="shrink-0">{device.label}</span>
       {strayRoute ? (
         // The frame is not on the page this board was created for — its own
@@ -1084,7 +1087,7 @@ export function ArtboardHeader({
           </span>
           <button
             type="button"
-            className="nopan nodrag shrink-0 rounded p-1 text-amber-300 hover:bg-zinc-800"
+            className="nopan nodrag shrink-0 rounded p-1 text-blocked hover:bg-accent"
             title={`Show ${route} again`}
             aria-label={`Show ${route} again`}
             onClick={() => onReloadBoard(boardKey)}
@@ -1094,7 +1097,7 @@ export function ArtboardHeader({
         </>
       ) : null}
       <button
-        className="nopan nodrag ml-auto shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+        className="nopan nodrag ml-auto shrink-0 rounded p-1 hover:bg-accent disabled:opacity-40"
         title="Copy HTML"
         disabled={projectId == null}
         onClick={copyHtml}
@@ -1103,7 +1106,7 @@ export function ArtboardHeader({
       </button>
       <button
         type="button"
-        className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800"
+        className="nopan nodrag shrink-0 rounded p-1 hover:bg-accent"
         title="Reload"
         aria-label={`Reload ${label}`}
         onClick={() => onReloadBoard(boardKey)}
@@ -1117,7 +1120,7 @@ export function ArtboardHeader({
             // `nopan nodrag`: React Flow must not take this press as a pan.
             <button
               type="button"
-              className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+              className="nopan nodrag shrink-0 rounded p-1 hover:bg-accent disabled:opacity-40"
               title="Download"
               aria-label={`Download ${label}`}
             />
@@ -1172,7 +1175,7 @@ export function ArtboardHeader({
           render={
             // `nopan nodrag`: React Flow must not take this press as the start
             // of a pan or a node drag, or the menu never opens.
-            <button className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800" title="More actions" />
+            <button className="nopan nodrag shrink-0 rounded p-1 hover:bg-accent" title="More actions" />
           }
         >
           <EllipsisIcon className="size-3.5" />
@@ -1548,7 +1551,7 @@ export const LazyFrame = memo(function LazyFrame({
   }
 
   return (
-    <div ref={hostRef} style={{ width, height }} className="relative bg-zinc-900">
+    <div ref={hostRef} style={{ width, height }} className="relative bg-card">
       {isLive ? (
         <iframe
           key={`${frameSrc}|${epoch}`}
@@ -1599,13 +1602,13 @@ function FrameError({ width, height, reason }: { width: number; height: number; 
   return (
     <div
       style={{ width, height }}
-      className="flex flex-col items-center justify-center gap-2 bg-zinc-900 p-6 text-center"
+      className="flex flex-col items-center justify-center gap-2 bg-card p-6 text-center"
     >
-      <p className="text-sm text-zinc-300">This artboard could not load.</p>
-      <p className="font-mono text-[11px] text-zinc-500">{reason}</p>
+      <p className="text-sm text-foreground">This artboard could not load.</p>
+      <p className="font-mono text-[11px] text-muted-foreground">{reason}</p>
       <button
         type="button"
-        className="mt-1 rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
+        className="mt-1 rounded bg-secondary px-3 py-1 text-xs text-secondary-foreground hover:bg-accent"
         onClick={() => window.location.reload()}
       >
         Retry
@@ -1617,10 +1620,10 @@ function FrameError({ width, height, reason }: { width: number; height: number; 
 function PlaceholderSkeleton({ width, height }: { width: number; height: number; label: string }) {
   return (
     <div
-      className="flex h-full w-full items-center justify-center bg-gradient-to-b from-zinc-900 to-zinc-800"
+      className="flex h-full w-full items-center justify-center bg-gradient-to-b from-muted to-muted/60"
       style={{ width, height }}
     >
-      <MaximizeIcon className="size-5 text-zinc-700" />
+      <MaximizeIcon className="size-5 text-muted-foreground/60" />
     </div>
   )
 }

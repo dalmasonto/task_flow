@@ -15,6 +15,7 @@ import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { Button } from "@/components/ui/button"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { DB_CHAT_PANEL, DB_SIDE_PANEL } from "@/components/panels/panel-width"
 import { ResizeHandle } from "@/components/panels/resize-handle"
@@ -346,16 +347,16 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
                 <Legend />
               </>
             )
-          ) : openModel && !draftNew ? (
-            <DataTab key={`${openModel.name}@${version}`} model={openModel} busy={busy} onSave={(rows) => void commit(withModel(doc, { ...openModel, samples: rows }))} />
+          ) : doc.models.length ? (
+            <DataView doc={doc} selected={openModel && !draftNew ? openModel.name : null} version={version} busy={busy} onPick={open} onSave={(model, rows) => void commit(withModel(doc, { ...model, samples: rows }))} />
           ) : (
             <Empty className="h-full">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <TableIcon />
                 </EmptyMedia>
-                <EmptyTitle>Pick a model</EmptyTitle>
-                <EmptyDescription>Choose one on the right to see and edit its sample rows.</EmptyDescription>
+                <EmptyTitle>No models yet</EmptyTitle>
+                <EmptyDescription>Add a model first; its sample rows are edited here.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           )}
@@ -508,6 +509,38 @@ function Legend() {
         joins a model to itself
       </span>
       <span>? optional</span>
+    </div>
+  )
+}
+
+/// The Data tab: pick a model (the open one, else the first) and edit its
+/// sample rows. These are example rows kept in the schema document (what an
+/// app would seed or show), not a live database.
+function DataView({ doc, selected, version, busy, onPick, onSave }: { doc: DbSchemaDoc; selected: string | null; version: number; busy: boolean; onPick: (name: string) => void; onSave: (model: DbModel, rows: Record<string, unknown>[]) => void }) {
+  const model = doc.models.find((m) => m.name === selected) ?? doc.models[0]
+  const items = Object.fromEntries(doc.models.map((m) => [m.name, m.name]))
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-3 py-2">
+        <Select items={items} value={model.name} onValueChange={(v) => v && onPick(v as string)}>
+          <SelectTrigger aria-label="Model" className="h-8 w-56 font-mono text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {doc.models.map((m) => (
+              <SelectItem key={m.name} value={m.name} className="font-mono text-sm">
+                <span className={cn("size-2 rounded-full", toneFor(doc, m.group).dot)} aria-hidden />
+                {m.name}
+                <span className="ml-auto pl-3 text-xs text-muted-foreground">{m.samples?.length ?? 0}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-xs text-muted-foreground">Sample rows: example data kept with the schema, for agents and for you to see the model filled in.</span>
+      </div>
+      <div className="min-h-0 flex-1">
+        <DataTab key={`${model.name}@${version}`} model={model} busy={busy} onSave={(rows) => onSave(model, rows)} />
+      </div>
     </div>
   )
 }

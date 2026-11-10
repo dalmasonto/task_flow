@@ -4,7 +4,7 @@ import { AgentTerminalPanel } from "@/components/chat/terminal"
 import { ChatFilesTab } from "@/components/chat/files-tab"
 import { QuestionActionButton, QuestionDialog } from "@/components/chat/structured-question"
 import { AgentsConversationEmpty, type AgentsOutletContext } from "@/pages/agents"
-import { ArrowLeftIcon, AtSignIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, ReplyIcon, SendIcon, SmileIcon, TerminalIcon, XIcon } from "lucide-react"
+import { ArrowDownIcon, ArrowLeftIcon, AtSignIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, ReplyIcon, SendIcon, SmileIcon, TerminalIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { MESSAGE_PAGE_SIZE, buildThreadItems } from "@/lib/live-mappers"
@@ -407,9 +407,16 @@ export function AgentsConversationView({
     }
     el.addEventListener("scroll", track, { passive: true })
     el.addEventListener("load", repin, true)
+    // Rows also grow after they render without any `load`: reactions, delivery
+    // receipts, "ran N tools" and thread counts arrive from their own reads.
+    // Without this the room opened ~200 px above its last message (Dalmas:
+    // "no scroll to bottom").
+    const grown = new MutationObserver(repin)
+    grown.observe(el, { childList: true, subtree: true, characterData: true })
     return () => {
       el.removeEventListener("scroll", track)
       el.removeEventListener("load", repin, true)
+      grown.disconnect()
     }
   }, [])
 
@@ -876,7 +883,7 @@ export function AgentsConversationView({
           {/* #661/#644: the bottom row of the thread — the "new messages"
               pill and the red "needs an answer" control share one sticky
               container so neither can cover the other. */}
-          {unseenCount > 0 || openQuestions.length ? (
+          {unseenCount > 0 || openQuestions.length || !atBottom ? (
             <div className="pointer-events-none sticky bottom-1 z-20 flex flex-col items-center gap-1">
               {openQuestions.length ? (
                 <QuestionActionButton
@@ -894,6 +901,17 @@ export function AgentsConversationView({
                 >
                   <ChevronDownIcon className="size-3.5" />
                   {unseenCount === 1 ? "1 new message" : `${unseenCount} new messages`}
+                </button>
+              ) : !atBottom ? (
+                // Scrolled up with nothing new: a way back down all the same.
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  aria-label="Jump to the latest message"
+                  title="Jump to the latest message"
+                  className="pointer-events-auto flex size-8 items-center justify-center self-end rounded-full border border-border bg-background text-muted-foreground shadow-md transition hover:bg-accent hover:text-foreground"
+                >
+                  <ArrowDownIcon className="size-4" />
                 </button>
               ) : null}
             </div>

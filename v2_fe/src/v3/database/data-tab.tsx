@@ -47,14 +47,14 @@ export function DataTab({
             {rows.map((row, r) => (
               <tr key={r} className="hover:bg-muted/40">
                 {model.fields.map((f) => (
-                  <td key={f.name} className="px-1 py-0.5">
+                  <td key={f.name} className="px-1 py-1">
                     {f.type === "enum" ? (
                       <Select
                         items={Object.fromEntries((f.values ?? []).map((v) => [v, v]))}
                         value={cellText(row[f.name]) || null}
                         onValueChange={(v) => setRows(rows.map((x, i) => (i === r ? { ...x, [f.name]: (v as string | null) ?? "" } : x)))}
                       >
-                        <SelectTrigger aria-label={`${f.name}, row ${r + 1}`} className="h-8 w-full min-w-28 border-transparent bg-transparent font-mono text-xs shadow-none hover:border-border">
+                        <SelectTrigger aria-label={`${f.name}, row ${r + 1}`} className="h-8 w-full min-w-28 font-mono text-xs">
                           <SelectValue placeholder="—" />
                         </SelectTrigger>
                         <SelectContent>
@@ -68,7 +68,7 @@ export function DataTab({
                     ) : (
                       <input
                         aria-label={`${f.name}, row ${r + 1}`}
-                        className="h-8 w-full min-w-24 rounded border border-transparent bg-transparent px-2 font-mono text-xs outline-none hover:border-border focus:border-ring"
+                        className="h-8 w-full min-w-28 rounded-md border border-input bg-background px-2 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                         value={cellText(row[f.name])}
                         onChange={(e) =>
                           setRows(rows.map((x, i) => (i === r ? { ...x, [f.name]: parseCell(f, e.target.value) } : x)))
