@@ -33,6 +33,8 @@ taskflow-github = { path = "plugins/taskflow-github" }
 # Design Surface: the agent-editable UI canvas (pages/components/tokens rows,
 # validator, sandbox composer). See plugins/taskflow-design/src/lib.rs.
 taskflow-design = { path = "plugins/taskflow-design" }
+# #885: the Database tool (agent-written data model, editable by the human).
+taskflow-db = { path = "plugins/taskflow-db" }
 
 # ----- Framework core (always required) ------------------------------------
 umbral         = "0.0.13"

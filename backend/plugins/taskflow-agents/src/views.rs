@@ -3896,7 +3896,7 @@ pub(crate) async fn find_design_room(project_id: i64) -> Result<Option<TaskflowA
 /// rooms — so a caller must never observe a room without its seats, including one
 /// another caller created a moment ago. Idempotent per agent (see
 /// `ensure_agent_channel_row`), which is what makes running it every time safe.
-async fn ensure_project_agents_rostered(
+pub async fn ensure_project_agents_rostered(
     project_id: i64,
     channel_id: i64,
 ) -> Result<(), StatusCode> {

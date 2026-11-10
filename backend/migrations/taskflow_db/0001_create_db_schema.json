@@ -1,0 +1,504 @@
+{
+  "id": "0001_create_db_schema",
+  "plugin": "taskflow_db",
+  "depends_on": [],
+  "operations": [
+    {
+      "kind": "CreateTable",
+      "table": "db_room",
+      "columns": [
+        {
+          "name": "id",
+          "ty": "BigInt",
+          "primary_key": true,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "channel",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_agent_channel",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "created_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0,
+          "auto_now_add": true
+        }
+      ],
+      "unique_together": [
+        [
+          "project"
+        ]
+      ]
+    },
+    {
+      "kind": "CreateTable",
+      "table": "db_schema",
+      "columns": [
+        {
+          "name": "id",
+          "ty": "BigInt",
+          "primary_key": true,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "doc_json",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 1048576,
+          "widget": "textarea"
+        },
+        {
+          "name": "version",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "default": "0"
+        },
+        {
+          "name": "updated_by",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 40
+        },
+        {
+          "name": "updated_by_label",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 120
+        },
+        {
+          "name": "created_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0,
+          "auto_now_add": true
+        },
+        {
+          "name": "updated_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0
+        }
+      ],
+      "unique_together": [
+        [
+          "project"
+        ]
+      ]
+    },
+    {
+      "kind": "CreateTable",
+      "table": "db_schema_version",
+      "columns": [
+        {
+          "name": "id",
+          "ty": "BigInt",
+          "primary_key": true,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "version",
+          "ty": "BigInt",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "doc_json",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 1048576,
+          "widget": "textarea"
+        },
+        {
+          "name": "author",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 40
+        },
+        {
+          "name": "author_label",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 120
+        },
+        {
+          "name": "note",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 300
+        },
+        {
+          "name": "created_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0,
+          "auto_now_add": true
+        }
+      ]
+    }
+  ],
+  "snapshot_after": {
+    "models": [
+      {
+        "name": "DbRoom",
+        "table": "db_room",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "channel",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent_channel",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "DbRoom",
+        "icon": "database",
+        "unique_together": [
+          [
+            "project"
+          ]
+        ],
+        "app_label": "app"
+      },
+      {
+        "name": "DbSchema",
+        "table": "db_schema",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "doc_json",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 1048576,
+            "widget": "textarea"
+          },
+          {
+            "name": "version",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "0"
+          },
+          {
+            "name": "updated_by",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 40
+          },
+          {
+            "name": "updated_by_label",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          },
+          {
+            "name": "updated_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0
+          }
+        ],
+        "display": "DbSchema",
+        "icon": "database",
+        "unique_together": [
+          [
+            "project"
+          ]
+        ],
+        "app_label": "app"
+      },
+      {
+        "name": "DbSchemaVersion",
+        "table": "db_schema_version",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "version",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "doc_json",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 1048576,
+            "widget": "textarea"
+          },
+          {
+            "name": "author",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 40
+          },
+          {
+            "name": "author_label",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "note",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 300
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "DbSchemaVersion",
+        "icon": "database",
+        "app_label": "app"
+      }
+    ]
+  }
+}

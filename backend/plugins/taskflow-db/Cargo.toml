@@ -1,0 +1,28 @@
+[package]
+name = "taskflow-db"
+version = "0.1.0"
+edition = "2024"
+
+# #885: the Database tool — the data model of the project being built, written
+# by agents and editable by the human, shown as a diagram. Same shape as
+# taskflow-design: one versioned document per project, human routes under
+# /api/db/{project}/..., agent routes under /api/taskflow/agents/db/...
+
+[dependencies]
+umbral = "0.0.13"
+umbral-auth = "0.0.13"
+taskflow-projects = { path = "../taskflow-projects" }
+taskflow-agents = { path = "../taskflow-agents" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+
+[dev-dependencies]
+umbral-testing = "0.0.13"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+umbral-realtime = "0.0.13"
+http = "1"
+taskflow-tasks = { path = "../taskflow-tasks" }
+axum = "0.8"

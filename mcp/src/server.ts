@@ -1559,6 +1559,148 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
   );
 
+  // ---- Database tool (#885) ---------------------------------------------------
+  // The data model of the project being built, shown to the person as a
+  // diagram on the Database page. Agents write ONE model at a time from the
+  // version they read; a field a person changed is locked_by_user and a write
+  // that would change or drop it is refused unless `override` is sent — and an
+  // override is announced to the person in the Database room.
+
+  const dbFieldSchema = z
+    .object({
+      name: z.string().describe("Identifier: letters, digits, underscore."),
+      type: z
+        .enum(["String", "Text", "i64", "f64", "bool", "Date", "DateTime", "Json", "Uuid", "enum", "fk"])
+        .describe("enum needs `values`; fk needs `fk`."),
+      optional: z.boolean().optional(),
+      unique: z.boolean().optional(),
+      indexed: z.boolean().optional(),
+      primary_key: z.boolean().optional(),
+      default: z.unknown().optional(),
+      values: z.array(z.string()).optional().describe("The allowed values of an enum field."),
+      fk: z
+        .object({
+          model: z.string().describe("The model this field points at."),
+          on_delete: z.enum(["cascade", "set_null", "restrict"]).optional(),
+        })
+        .optional(),
+    })
+    .passthrough();
+
+  server.tool(
+    "db_schema",
+    "Read the project's data model — the models agents have written and a person may have edited, shown to the person as the Database page's diagram. Without `model`: every model and its fields, plus `version`. With `model`: that model and `referenced_by` (the fk fields that point at it). Fields with `locked_by_user: true` were changed by a person: do not change or remove them without asking. Hand `version` back as `base_version` on db_write_model / db_delete_model / db_write_samples. A new project's schema is empty; nothing is seeded.",
+    {
+      ...designProjectArg,
+      model: z.string().optional().describe("Read one model only."),
+      ...profileArg,
+    },
+    async ({ project, model, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.readDbSchema(await resolveDesignProject(client, project), model));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "db_write_model",
+    "Create or replace ONE model in the project's data model. Send the whole model (name, optional group, every field) with the `version` from db_schema as `base_version`. Refused with version_conflict if someone saved since you read (re-read, merge, retry), with invalid_schema naming each problem (unknown type, enum without values, fk to a model that does not exist, set_null on a required field), and with locked_by_user naming the fields a person changed that your write would alter or drop. Only send `override: true` when the person agreed; it is announced to them in the Database room.",
+    {
+      ...designProjectArg,
+      base_version: z.number().int().describe("`version` from db_schema."),
+      model: z
+        .object({
+          name: z.string(),
+          group: z.string().optional().describe("A label that clusters and colours the diagram (an app or plugin)."),
+          fields: z.array(dbFieldSchema),
+          samples: z.array(z.record(z.string(), z.unknown())).optional(),
+        })
+        .describe("The whole model as it should be."),
+      override: z.boolean().optional().describe("Change locked fields anyway. Only with the person's agreement."),
+      ...profileArg,
+    },
+    async ({ project, base_version, model, override, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeDbModel({
+            project: await resolveDesignProject(client, project),
+            base_version,
+            model: model as Record<string, unknown>,
+            ...(override ? { override } : {}),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "db_delete_model",
+    "Remove one model from the project's data model, from the `version` you read. Refused while another model's fk still points at it (change that field first) and while it holds fields a person changed (locked_by_user) unless `override` is sent with their agreement.",
+    {
+      ...designProjectArg,
+      name: z.string(),
+      base_version: z.number().int(),
+      override: z.boolean().optional(),
+      ...profileArg,
+    },
+    async ({ project, name, base_version, override, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.deleteDbModel({
+            project: await resolveDesignProject(client, project),
+            name,
+            base_version,
+            ...(override ? { override } : {}),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "db_write_samples",
+    "Replace one model's sample rows — what the Database page's Data tab shows. Each row maps field names to values; a key that is not a field is refused. Up to 50 rows. Uses the same `base_version` as the other db writes.",
+    {
+      ...designProjectArg,
+      base_version: z.number().int(),
+      model: z.string(),
+      rows: z.array(z.record(z.string(), z.unknown())),
+      ...profileArg,
+    },
+    async ({ project, base_version, model, rows, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeDbSamples({
+            project: await resolveDesignProject(client, project),
+            base_version,
+            model,
+            rows,
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
   // ---- Arranging the board --------------------------------------------------
   // The four writes take an OPERATION, tagged by which edit it is, and never a
   // document: design_read_layout is the panel's view and comes back lossy, so a
