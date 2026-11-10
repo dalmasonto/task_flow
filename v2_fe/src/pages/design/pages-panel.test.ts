@@ -934,3 +934,30 @@ describe("the page trash", () => {
     expect(render(layout({}))).not.toContain("to the trash")
   })
 })
+
+// #1059: the selection (the open pages) goes to the trash in one go.
+describe("bulk move to trash", () => {
+  const renderBulk = (open: string[], withHandler = true) =>
+    renderToStaticMarkup(
+      createElement(PagesPanel, {
+        manifest: manifest(MANIFEST),
+        openRoutes: open,
+        onToggleRoute: () => {},
+        onOpenRoutesChange: () => {},
+        layout: layout({}),
+        onLayoutChange: () => {},
+        ...(withHandler ? { onTrashPages: () => {} } : {}),
+      }),
+    )
+
+  it("offers the selection's trash, counting only real pages", () => {
+    // `/gone` is a stale open route: not a page, so it is neither counted nor sent.
+    expect(renderBulk(["/", "/login", "/gone"])).toContain('aria-label="Move 2 selected pages to the trash"')
+    expect(renderBulk(["/settings"])).toContain('aria-label="Move 1 selected page to the trash"')
+  })
+
+  it("draws no control with nothing selected, or without a handler", () => {
+    expect(renderBulk([])).not.toContain("selected page")
+    expect(renderBulk(["/"], false)).not.toContain("selected page")
+  })
+})

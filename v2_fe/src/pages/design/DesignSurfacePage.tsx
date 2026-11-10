@@ -895,6 +895,29 @@ export function DesignSurfacePage({
     [projectId],
   )
 
+  // #1059: trash the whole selection. One request per page, in order: a
+  // failure keeps going and names every page that didn't move, so a partial
+  // trash is never silent. The boards close at once, like the single trash.
+  const trashPages = useCallback(
+    (routes: string[]) => {
+      if (!projectId || !routes.length) return
+      const gone = new Set(routes)
+      setOpenRoutes((current) => current.filter((r) => !gone.has(r)))
+      void (async () => {
+        const failed: string[] = []
+        for (const route of routes) {
+          try {
+            await trashDesignPage(projectId, route)
+          } catch {
+            failed.push(route)
+          }
+        }
+        if (failed.length) setError(`Could not move ${failed.join(", ")} to the trash. Try again from the Pages panel.`)
+      })()
+    },
+    [projectId],
+  )
+
   // One board's screen as a PNG, from the board's ⋯ menu — the export
   // pipeline for a single page, loaded only when first used.
   const downloadBoardImage = useCallback(
@@ -1708,6 +1731,7 @@ export function DesignSurfacePage({
                 layout={layout}
                 onLayoutChange={updateLayout}
                 onTrashPage={trashPage}
+                onTrashPages={trashPages}
                 trash={trash}
                 onRestore={restorePage}
               />

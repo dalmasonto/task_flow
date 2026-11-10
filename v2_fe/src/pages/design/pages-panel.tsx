@@ -183,6 +183,7 @@ export function PagesPanel({
   layout,
   onLayoutChange,
   onTrashPage,
+  onTrashPages,
   trash = [],
   onRestore,
 }: {
@@ -204,6 +205,9 @@ export function PagesPanel({
   onLayoutChange: (next: LayoutDoc) => void
   /// #501: move a page to the trash. Absent, the rows draw no trash control.
   onTrashPage?: (route: string) => void
+  /// #1059: move every SELECTED (open) page to the trash in one go, after a
+  /// confirm. Absent, the bulk row draws no trash control.
+  onTrashPages?: (routes: string[]) => void
   /// #501: the project's trashed PAGES (non-page files are left out by the
   /// caller), and how to bring one back. The Trash section is drawn only when
   /// there is something in it.
@@ -220,6 +224,7 @@ export function PagesPanel({
   /// Whether the New group dialog is open. Held here, not inside it: the button
   /// that opens it is the panel's, and so is the `createGroup` call below.
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+  const [confirmBulkTrash, setConfirmBulkTrash] = useState(false)
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
 
   /// The group the Delete group dialog is asking about, or null when closed.
@@ -324,6 +329,9 @@ export function PagesPanel({
   const flow = numberedPages(layout, routes)
   const flowPlace = new Map(flow.map((page) => [page.route, page.n]))
   const bulk = selectAllState(routes, openRoutes)
+  /// #1059: the selection the bulk trash acts on — only routes that are real
+  /// pages, so a stale open route can't be sent to the server.
+  const selectedPages = openRoutes.filter((r) => routes.some((entry) => entry.path === r))
 
   /// The search box's text, and the sections narrowed to it. A narrowing only:
   /// every control on a group — its number, arrows, bulk select — still acts on
@@ -646,7 +654,58 @@ export function PagesPanel({
           <span className="ml-auto tabular-nums text-muted-foreground">
             {bulk.openCount}/{bulk.total}
           </span>
+          {/* #1059: the selection, to the trash in one go. Confirmed, because
+              unlike a row's one-click trash this can take the whole project. */}
+          {onTrashPages && selectedPages.length ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground hover:text-destructive"
+              aria-label={`Move ${selectedPages.length} selected page${selectedPages.length === 1 ? "" : "s"} to the trash`}
+              title="Move selected to trash"
+              onClick={(event) => {
+                // Inside the <label>: without this the click also toggles Select all.
+                event.preventDefault()
+                setConfirmBulkTrash(true)
+              }}
+            >
+              <Trash2Icon className="size-3" />
+            </Button>
+          ) : null}
         </label>
+      ) : null}
+      {onTrashPages ? (
+        <Dialog open={confirmBulkTrash} onOpenChange={setConfirmBulkTrash}>
+          <DialogContent showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>
+                Move {selectedPages.length} page{selectedPages.length === 1 ? "" : "s"} to the trash?
+              </DialogTitle>
+              <DialogDescription>
+                {selectedPages.length <= 6 ? selectedPages.join(", ") : `${selectedPages.slice(0, 6).join(", ")} and ${selectedPages.length - 6} more`}{" "}
+                leave the canvas, the Pages panel and every export. They go to the Trash at the bottom of this panel,
+                where each can be restored.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setConfirmBulkTrash(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                autoFocus
+                disabled={!selectedPages.length}
+                onClick={() => {
+                  setConfirmBulkTrash(false)
+                  onTrashPages(selectedPages)
+                }}
+              >
+                Move to trash
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
       {/* The Groups section: one block per group, each with its own rows. Its
           heading is drawn even with no groups at all, because `+ Add group` is
