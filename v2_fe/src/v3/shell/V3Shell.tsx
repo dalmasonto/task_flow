@@ -1,7 +1,7 @@
 /// The v3 app shell: sidebar, top bar and ⌘K palette, from the design's
 /// `tf-shell`. Built only from shadcn primitives; every number in it is live
 /// workspace data, never a placeholder.
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { BotIcon, InboxIcon, ChevronRightIcon, ChevronsUpDownIcon, CircleDotIcon, HashIcon, LogOutIcon, MessageSquareIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, TerminalIcon, UserIcon } from "lucide-react"
 
@@ -51,6 +51,7 @@ import { badgeText, type LiveAgent, type SidebarChat } from "./sidebar-logic"
 import { useSidebarData } from "./use-sidebar-data"
 import { OfflineBanner } from "../system/OfflineBanner"
 import { WaitingBanner } from "./WaitingBanner"
+import { useScrollMemory } from "./use-scroll-memory"
 
 /// tf-shell's group labels: sentence case, muted, not the primitive's small caps.
 const LABEL = "text-xs font-medium normal-case text-muted-foreground"
@@ -357,6 +358,8 @@ export function V3Shell({ title, actions, flush, children }: { title: ReactNode;
   const navCounts: NavCounts = { ...counts, inbox: side.inbox, chat: side.chat.unread, decisions: side.decisions }
   const active = activeNavId(pathname)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const mainRef = useRef<HTMLElement>(null)
+  useScrollMemory(mainRef)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -451,7 +454,15 @@ export function V3Shell({ title, actions, flush, children }: { title: ReactNode;
         </header>
         <OfflineBanner />
         <WaitingBanner waiting={side.waiting} />
-        <main className={cn("min-h-0 flex-1 overflow-y-auto", !flush && "p-4 lg:p-6")}>{children}</main>
+        <main ref={mainRef} className={cn("min-h-0 flex-1 overflow-y-auto", !flush && "p-4 lg:p-6")}>
+ {/* #1093: a short fade when you move between SECTIONS (keyed on
+              /v3/<section>, so switching a chat or a task inside one section
+              keeps its state), skipped under prefers-reduced-motion. Opacity
+              only: no layout shift. */}
+          <div key={pathname.split("/").slice(0, 3).join("/")} className={cn("motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150", flush && "h-full")}>
+            {children}
+          </div>
+        </main>
       </SidebarInset>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <DetailSheetHost />

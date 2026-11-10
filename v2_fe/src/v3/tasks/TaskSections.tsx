@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -146,7 +147,13 @@ export function EvidenceSection({ taskId }: { taskId: number }) {
   return (
     <Section title="Evidence for review" count={rows?.length} action={<Badge variant="outline" title="The server records who said it, not whether it's true">Self-reported</Badge>}>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      {!rows && !error ? <Spinner /> : null}
+      {/* #1093: a row-shaped placeholder, not a spinner, so nothing jumps when it lands. */}
+      {!rows && !error ? (
+        <div className="space-y-2" aria-busy="true" aria-label="Loading evidence">
+          <Skeleton className="h-5 w-3/4" />
+          <Skeleton className="h-5 w-1/2" />
+        </div>
+      ) : null}
       {rows?.length ? (
         <ul className="space-y-2">
           {rows.map((e) => (

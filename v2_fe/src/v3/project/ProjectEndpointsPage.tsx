@@ -30,6 +30,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
@@ -127,8 +128,14 @@ export function ProjectEndpointsPage() {
       <div className="grid gap-10">
         <Section title="Environments" description="The servers this project runs on. The default is what TaskFlow shows as this project's API.">
           {!live ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner /> Loading…
+            // #1093: the list's own shape while it loads, not a spinner line.
+            <div className="divide-y rounded-xl border bg-card" aria-busy="true" aria-label="Loading environments">
+              {[0, 1].map((i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 flex-1" />
+                </div>
+              ))}
             </div>
           ) : rows.length ? (
             <ul className="divide-y rounded-xl border bg-card">
