@@ -466,6 +466,20 @@ let currentRuntime: (() => void) | null = null;
 let runtimeOwner: object | undefined;
 
 /**
+ * #766: which agent THIS process is connected as (server + agent id), or null
+ * before the first `connectAs`. On launch the MCP auto-connects (env, sticky
+ * pick or the only profile), so a later `select_profile` naming the SAME agent
+ * finds this process's own live session; without this it warned about
+ * "another terminal" when there was only one.
+ */
+let connectedAs: { server: string; agentId: number } | null = null;
+
+/** Whether this process is already connected as `profile`'s agent. */
+export function isConnectedAs(profile: Pick<ResolvedProfile, "server" | "agentId">): boolean {
+  return connectedAs != null && connectedAs.server === profile.server && connectedAs.agentId === profile.agentId;
+}
+
+/**
  * Connect as a known profile and start the runtime. Used by `select_profile`.
  *
  * Nothing is awaited: `startConnection`'s `settled` stays pending for as long as
@@ -483,6 +497,7 @@ export function connectAs(profile: ResolvedProfile, pane: string | null): void {
 
   const token = {};
   runtimeOwner = token;
+  connectedAs = { server: profile.server, agentId: profile.agentId };
   current = startConnection({
     profile,
     pane,

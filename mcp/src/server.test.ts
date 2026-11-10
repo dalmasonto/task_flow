@@ -42,6 +42,8 @@ const harness = vi.hoisted(() => ({
     last_seen_at: string | null;
   }>,
   listAgentsFails: false,
+  /** #766: the agent id this process is already connected as, if any. */
+  connectedAgentId: null as number | null,
   registered: [] as Array<{ session_identifier: string }>,
   heartbeats: [] as Array<{ session: number; status?: string }>,
   connection: { state: "starting", attempts: 0 } as {
@@ -62,6 +64,7 @@ vi.mock("./tmux.js", async (importOriginal) => ({
 // `selectProfile` is the connect side of `select_profile`; it is recorded rather
 // than run so the ORDER of the lookup and the connect is observable.
 vi.mock("./runtime.js", () => ({
+  isConnectedAs: (p: { agentId: number }) => harness.connectedAgentId === p.agentId,
   selectProfile: async () => {
     harness.calls.push("selectProfile");
   },
@@ -417,6 +420,7 @@ beforeEach(() => {
   harness.layoutOpKeys.length = 0;
   harness.agents = [];
   harness.listAgentsFails = false;
+  harness.connectedAgentId = null;
   harness.registered.length = 0;
   harness.heartbeats.length = 0;
   harness.connection = { state: "starting", attempts: 0 };
@@ -446,6 +450,20 @@ describe("select_profile (end to end)", () => {
     const parsed = body(result);
     expect(parsed.selected).toBe("main");
     expect(parsed.warning).toMatch(/already has a live session/);
+  });
+
+  // #766: on launch the MCP auto-connects as the default profile, so picking
+  // that SAME profile finds this process's own live row. One terminal, no
+  // collision: no warning, and the roster is not even consulted.
+  it("does not warn when this process is already connected as that agent (#766)", async () => {
+    harness.agents = [LIVE_MAIN];
+    harness.connectedAgentId = LIVE_MAIN.id;
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "select_profile", arguments: { profile: "main" } });
+    const parsed = body(result);
+    expect(parsed.selected).toBe("main");
+    expect(parsed.warning).toBeUndefined();
+    expect(harness.calls).toEqual(["selectProfile"]);
   });
 
   it("says nothing when the identity is free", async () => {

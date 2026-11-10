@@ -41,7 +41,7 @@ import {
 } from "./toolbox.js";
 import { sessionIdentifier } from "./session-identifier.js";
 import { getConnectionStatus } from "./connect.js";
-import { selectProfile } from "./runtime.js";
+import { isConnectedAs, selectProfile } from "./runtime.js";
 import { readStickyProfile } from "./sessions-store.js";
 
 /**
@@ -505,7 +505,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         // BEFORE connecting, not after: `selectProfile` registers a session for
         // this very agent, so a lookup afterwards would find OUR OWN row and
         // warn about a collision with ourselves on every single call.
-        const live = await new TaskflowClient({ server: resolved.server, key: resolved.key })
+        // #766: if this process is ALREADY that agent (it auto-connected on
+        // launch), the live row is our own session, not another terminal.
+        const alreadyUs = isConnectedAs(resolved);
+        const live = alreadyUs
+          ? null
+          : await new TaskflowClient({ server: resolved.server, key: resolved.key })
           .listAgents()
           .then(
             (agents) =>
