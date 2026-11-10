@@ -4,14 +4,18 @@
 /// who wrote it. One primary action: Save as the next version.
 
 import { useState } from "react"
-import { ChevronDownIcon, ChevronRightIcon, LockIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react"
+import { ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, LinkIcon, LockIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DB_FIELD_TYPES, type DbField, type DbModel, type DbSchemaDoc } from "@/lib/db-api"
 import { cn } from "@/lib/utils"
 
-import { toneFor } from "./db-graph"
+import { suggestedTarget, toneFor } from "./db-graph"
+
+/// `Blog` → `blog`, `TaskflowProject` → `taskflow_project`: the field name a
+/// new relation to that model gets.
+const fieldNameFor = (model: string) => model.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()
 
 const FLAGS: Array<[keyof DbField, string]> = [
   ["optional", "Optional"],
@@ -55,6 +59,19 @@ export function ModelEditor({
   const [open, setOpen] = useState<number | null>(null)
   const dirty = JSON.stringify(draft) !== JSON.stringify(model)
   const others = doc.models.map((m) => m.name).filter((n) => n !== model.name)
+
+  const targets = [...others, draft.name]
+  // Relations, both ways: this model's fk fields, and other models' fk
+  // fields that point here (database--model.html's "Relations").
+  const belongsTo = draft.fields.filter((f) => f.type === "fk" && f.fk?.model)
+  const hasMany = doc.models.flatMap((m) => (m.name === model.name ? [] : m.fields.filter((f) => f.type === "fk" && f.fk?.model === model.name).map((f) => ({ model: m.name, field: f.name }))))
+  const addRelation = (target: string) => {
+    const base = fieldNameFor(target)
+    let name = base
+    for (let n = 2; draft.fields.some((f) => f.name === name); n++) name = `${base}_${n}`
+    setDraft((d) => ({ ...d, fields: [...d.fields, { name, type: "fk", fk: { model: target, on_delete: "cascade" } }] }))
+    setOpen(draft.fields.length)
+  }
 
   const setField = (i: number, patch: Partial<DbField>) =>
     setDraft((d) => ({ ...d, fields: d.fields.map((f, j) => (j === i ? { ...f, ...patch } : f)) }))
@@ -131,7 +148,9 @@ export function ModelEditor({
                       onChange={(e) => setField(i, { type: e.target.value })}
                     >
                       {DB_FIELD_TYPES.map((t) => (
-                        <option key={t}>{t}</option>
+                        <option key={t} value={t}>
+                          {t === "fk" ? "relation (fk)" : t}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -148,6 +167,25 @@ export function ModelEditor({
                       </label>
                     ))}
                   </div>
+                  {f.type === "i64" && !f.primary_key && targets.length ? (
+                    <label className="flex items-center gap-2 rounded-md border border-dashed px-2 py-1.5 text-xs">
+                      <LinkIcon className="size-3.5 shrink-0 text-link" />
+                      <span className="shrink-0">{suggestedTarget(doc, f) ? `Looks like a link to ${suggestedTarget(doc, f)}.` : "Points at another model?"}</span>
+                      <select
+                        aria-label="Make it a relation to"
+                        className="h-7 min-w-0 flex-1 rounded-md border bg-background px-1.5 font-mono"
+                        value=""
+                        onChange={(e) => e.target.value && setField(i, { type: "fk", fk: { model: e.target.value, on_delete: f.optional ? "set_null" : "cascade" } })}
+                      >
+                        <option value="">Make it a relation to…</option>
+                        {targets.map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                   {f.type === "enum" ? (
                     <Input
                       aria-label="Enum values"
@@ -167,7 +205,7 @@ export function ModelEditor({
                         value={f.fk?.model ?? ""}
                         onChange={(e) => setField(i, { fk: { model: e.target.value, on_delete: f.fk?.on_delete ?? "cascade" } })}
                       >
-                        <option value="">Points at…</option>
+                        <option value="">Points at… (required)</option>
                         {[...others, draft.name].map((n) => (
                           <option key={n}>{n}</option>
                         ))}
@@ -227,6 +265,45 @@ export function ModelEditor({
           <PlusIcon className="size-4" />
           Add field
         </Button>
+        <section className="mt-5" aria-labelledby="relations">
+          <h3 id="relations" className="mb-2 text-xs font-medium text-muted-foreground">
+            Relations
+          </h3>
+          {belongsTo.length || hasMany.length ? (
+            <ul className="space-y-1 text-xs">
+              {belongsTo.map((f) => (
+                <li key={`b:${f.name}`} className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">belongs to</span>
+                  <span className="font-mono font-medium">{f.fk!.model}</span>
+                  <span className="text-muted-foreground">via</span>
+                  <span className="font-mono">{f.name}</span>
+                </li>
+              ))}
+              {hasMany.map((r) => (
+                <li key={`h:${r.model}.${r.field}`} className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">has many</span>
+                  <span className="font-mono font-medium">{r.model}</span>
+                  <span className="text-muted-foreground">via</span>
+                  <span className="font-mono">{r.field}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">No relations yet. A relation is a field that points at another model; the map draws it as an arrow.</p>
+          )}
+          <label className="mt-2 flex items-center gap-2 text-xs">
+            <ArrowRightIcon className="size-3.5 shrink-0 text-link" />
+            <select aria-label="Add a relation to" className="h-8 min-w-0 flex-1 rounded-md border bg-background px-1.5 font-mono" value="" onChange={(e) => e.target.value && addRelation(e.target.value)}>
+              <option value="">Add a relation to…</option>
+              {targets.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                  {n === draft.name ? " (itself)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
         {!isNew ? (
           <button type="button" className="mt-4 text-xs text-destructive hover:underline" disabled={busy} onClick={onDelete}>
             Delete this model

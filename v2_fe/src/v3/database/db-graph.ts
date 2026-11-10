@@ -48,22 +48,39 @@ export function layoutModels(doc: DbSchemaDoc): Map<string, { x: number; y: numb
   return out
 }
 
-export type DbEdge = { id: string; source: string; target: string; field: string; selfJoin: boolean }
+export type DbEdge = { id: string; source: string; target: string; field: string; targetField: string | null; selfJoin: boolean }
 
-/// One line per fk field, from the model holding it to the model it points at.
+/// The column a relation points at: the target's primary key, else its `id`,
+/// else its first field. Null for a model with no fields.
+export function keyField(model: DbModel | undefined): string | null {
+  if (!model) return null
+  return (model.fields.find((f) => f.primary_key) ?? model.fields.find((f) => f.name === "id") ?? model.fields[0])?.name ?? null
+}
+
+/// One line per fk field, from that field (column to column) to the key of
+/// the model it points at.
 export function fkEdges(doc: DbSchemaDoc): DbEdge[] {
-  const names = new Set(doc.models.map((m) => m.name))
+  const byName = new Map(doc.models.map((m) => [m.name, m]))
   return doc.models.flatMap((m) =>
     m.fields
-      .filter((f) => f.fk && names.has(f.fk.model))
+      .filter((f) => f.type === "fk" && f.fk && byName.has(f.fk.model))
       .map((f) => ({
         id: `${m.name}.${f.name}`,
         source: m.name,
         target: f.fk!.model,
         field: f.name,
+        targetField: keyField(byName.get(f.fk!.model)),
         selfJoin: f.fk!.model === m.name,
       })),
   )
+}
+
+/// A relation the person likely meant but typed as a plain integer: an i64
+/// field named after another model (`author` is not, `user` / `user_id` are).
+export function suggestedTarget(doc: DbSchemaDoc, field: { name: string; type: string }): string | null {
+  if (field.type !== "i64" || field.name === "id") return null
+  const base = field.name.toLowerCase().replace(/_id$/, "")
+  return doc.models.find((m) => m.name.toLowerCase() === base || m.name.toLowerCase().endsWith(base))?.name ?? null
 }
 
 /// The model itself, what it points at and what points at it — the tables kept
@@ -85,4 +102,19 @@ export function withModel(doc: DbSchemaDoc, model: DbModel, previousName?: strin
     ...doc,
     models: exists ? doc.models.map((m) => (m.name === key ? model : m)) : [...doc.models, model],
   }
+}
+
+/// The connection points a relation joins: every field row has a source and
+/// a target on BOTH edges (db-table-node), so a line can leave and enter on
+/// the sides that face each other instead of looping around a table.
+export type Side = "l" | "r"
+export const sourceHandle = (field: string, side: Side = "r") => `s:${side}:${field}`
+export const targetHandle = (field: string, side: Side = "l") => `t:${side}:${field}`
+
+/// Which sides face each other: target to the right → leave right, enter
+/// left; to the left → leave left, enter right. A self-join leaves and
+/// re-enters on the right, a loop beside the table.
+export function facingSides(sourceX: number, targetX: number, selfJoin: boolean): { from: Side; to: Side } {
+  if (selfJoin) return { from: "r", to: "r" }
+  return targetX >= sourceX ? { from: "r", to: "l" } : { from: "l", to: "r" }
 }

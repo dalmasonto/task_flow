@@ -7,7 +7,7 @@
 /// which the model editor takes over while a model is open. A field a person
 /// changes becomes theirs and locked; agents must ask before touching it.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Background, type Edge, type Node, type NodeChange, ReactFlow, ReactFlowProvider, applyNodeChanges, useReactFlow, useViewport } from "@xyflow/react"
+import { Background, Controls, type Edge, MarkerType, MiniMap, type Node, type NodeChange, ReactFlow, ReactFlowProvider, applyNodeChanges, useReactFlow, useViewport } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import { DatabaseIcon, GitBranchIcon, HashIcon, HistoryIcon, MessageSquareIcon, MinusIcon, MousePointerClickIcon, PlusIcon, RefreshCwIcon, SearchIcon, TableIcon, XIcon } from "lucide-react"
 
@@ -42,7 +42,7 @@ import { seedTaskFrom } from "../tasks/task-seed"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { DataTab } from "./data-tab"
-import { fkEdges, groupsOf, layoutModels, relatedModels, toneFor, withModel } from "./db-graph"
+import { facingSides, fkEdges, groupsOf, layoutModels, relatedModels, sourceHandle, targetHandle, toneFor, withModel } from "./db-graph"
 import { matchModels } from "./db-search"
 import { DbTableNode } from "./db-table-node"
 import { ModelEditor } from "./model-editor"
@@ -141,23 +141,28 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
       })),
     [doc, layout, positions, measured, related, openModel],
   )
+  // Column to column (database.html): from the foreign-key field's row to the
+  // target's key row, arrow at the target, in the target group's colour.
   const edges: Edge[] = useMemo(
     () =>
       fkEdges(doc).map((e) => {
         const target = doc.models.find((m) => m.name === e.target)
+        const colour = toneFor(doc, target?.group).line
+        const dim = related && !(related.has(e.source) && related.has(e.target))
+        const at = (name: string) => (positions.get(name) ?? layout.get(name) ?? { x: 0 }).x
+        const sides = facingSides(at(e.source), at(e.target), e.selfJoin)
         return {
           id: e.id,
           source: e.source,
           target: e.target,
-          style: {
-            stroke: toneFor(doc, target?.group).line,
-            strokeWidth: 1.5,
-            strokeDasharray: e.selfJoin ? "6 4" : undefined,
-            opacity: related && !(related.has(e.source) && related.has(e.target)) ? 0.2 : 1,
-          },
+          sourceHandle: sourceHandle(e.field, sides.from),
+          targetHandle: e.targetField ? targetHandle(e.targetField, sides.to) : undefined,
+          type: "smoothstep",
+          markerEnd: { type: MarkerType.ArrowClosed, color: colour, width: 16, height: 16 },
+          style: { stroke: colour, strokeWidth: 1.5, strokeDasharray: e.selfJoin ? "6 4" : undefined, opacity: dim ? 0.2 : 1 },
         }
       }),
-    [doc, related],
+    [doc, related, positions, layout],
   )
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -299,8 +304,18 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
                   minZoom={0.2}
                   proOptions={{ hideAttribution: true }}
                   nodesConnectable={false}
+                  // Pan by dragging the background, zoom with the wheel or a
+                  // pinch, Shift-drag to box-select tables (then drag them together).
+                  panOnDrag
+                  zoomOnScroll
+                  selectionKeyCode="Shift"
+                  multiSelectionKeyCode={["Meta", "Control"]}
+                  className="[--xy-controls-button-background-color:var(--card)] [--xy-controls-button-background-color-hover:var(--accent)] [--xy-controls-button-border-color:var(--border)] [--xy-controls-button-color:var(--foreground)] [--xy-minimap-background-color:var(--card)]"
                 >
                   <Background gap={20} size={1} />
+                  {/* Zoom in / out, fit (centre) and lock, bottom right. */}
+                  <Controls position="bottom-right" showInteractive aria-label="Map controls" />
+                  <MiniMap position="top-right" pannable zoomable nodeColor="var(--muted-foreground)" maskColor="color-mix(in oklab, var(--background) 70%, transparent)" className="!h-24 !w-36 rounded-md border border-border" />
                 </ReactFlow>
                 <Legend />
               </>
