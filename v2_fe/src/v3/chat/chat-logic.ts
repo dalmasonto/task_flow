@@ -15,6 +15,8 @@ export type ChatRow = {
   kind: "room" | "agent" | "person" | "group"
   agentName: string | null
   online: boolean
+  /// Rooms: a few members to draw as the room's avatar (agents first).
+  faces?: { name: string; agent: boolean }[]
 }
 
 /// One list row. The preview is the last message as "Who: text", flattened
@@ -38,6 +40,7 @@ export function chatRow(chat: AgentChatContext): ChatRow {
     unread: chat.unread,
     mentions: 0,
     channelId: chat.liveChannelId ?? null,
+    faces: [...chat.members].sort((a, b) => Number(b.type === "agent") - Number(a.type === "agent")).slice(0, 3).map((m) => ({ name: m.name, agent: m.type === "agent" })),
     kind,
     agentName: chat.liveAgentId ? chat.title : null,
     online: chat.online ?? false,
@@ -99,4 +102,10 @@ export function listTime(at: string, now: number): string {
   if (days === 1) return "Yesterday"
   if (days < 7) return d.toLocaleDateString("en-GB", { weekday: "short" })
   return d.toLocaleDateString("en-GB", d.getFullYear() === today.getFullYear() ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" })
+}
+
+/// Does a message body mention this person by identity (`[@Name](user:3)`),
+/// or everyone (`@here` / `@all`)? Drives chat.html's "for you" row tint.
+export function mentionsUser(body: string, userId: number): boolean {
+  return body.includes(`](user:${userId})`) || /(^|\s)@(here|all|everyone)\b/i.test(body)
 }

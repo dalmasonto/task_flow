@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm"
 
 import { cn } from "@/lib/utils"
 import { parseRefHref, refHref, splitRefs } from "@/lib/refs"
-import { TaskChipContext, GithubRepoContext, MessageRefContext, PageMentionContext } from "@/lib/markdown-contexts"
+import { ActorMentionContext, TaskChipContext, GithubRepoContext, MessageRefContext, PageMentionContext } from "@/lib/markdown-contexts"
 import { MENTION_URL, parseMentionHref, type MentionKind } from "@/lib/mention-tokens"
 
 /// Remark plugin: rewrite typed reference tags (`#TSK12`, `#MSG34`, `#GHI5`,
@@ -120,6 +120,7 @@ function NoteChip({ children }: { children?: ReactNode }) {
 /// where the design surface provides a way to.
 function MentionChip({ kind, id, children }: { kind: MentionKind; id: string; children?: ReactNode }) {
   const openPage = useContext(PageMentionContext)
+  const openActor = useContext(ActorMentionContext)
   const chipClass =
     kind === "page"
       ? "inline-flex items-center rounded-md bg-emerald-500/10 px-1 py-0.5 align-baseline text-[0.9em] font-medium text-emerald-700 ring-1 ring-emerald-500/25 dark:text-emerald-300"
@@ -128,6 +129,13 @@ function MentionChip({ kind, id, children }: { kind: MentionKind; id: string; ch
   if (kind === "page" && openPage) {
     return (
       <button type="button" className={cn(chipClass, "cursor-pointer hover:bg-emerald-500/20")} title={`Open ${id}`} onClick={() => openPage(id)}>
+        {children}
+      </button>
+    )
+  }
+  if ((kind === "user" || kind === "agent") && openActor && Number(id)) {
+    return (
+      <button type="button" className={cn(chipClass, "cursor-pointer hover:bg-primary/20")} title={`${title}: see details`} data-mention={`${kind}:${id}`} onClick={() => openActor(kind, Number(id))}>
         {children}
       </button>
     )

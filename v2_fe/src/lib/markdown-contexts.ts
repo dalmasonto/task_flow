@@ -42,3 +42,7 @@ export const PageMentionContext = createContext<((route: string) => void) | null
 /// or a scroll when the message is in the chat on screen). v3 provides it; null
 /// (v2, or nowhere to open) renders the chip as labelled, inert text.
 export const MessageRefContext = createContext<((messageId: number) => void) | null>(null)
+
+/// v3 chat: clicking an @person / @agent chip opens their details (chat.html's
+/// right panel). Absent: the chip stays a plain label, as before.
+export const ActorMentionContext = createContext<((kind: "user" | "agent", id: number) => void) | null>(null)

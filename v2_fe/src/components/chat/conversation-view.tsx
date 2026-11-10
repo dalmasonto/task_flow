@@ -84,6 +84,7 @@ export function AgentsConversationView({
   onComposerInput,
   aboveComposer,
   composerStyle = "classic",
+  messageHighlight,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   /// #506: the design pages `@page:` can mention. Absent (every surface but the
@@ -132,6 +133,8 @@ export function AgentsConversationView({
   /// "v3": chat.html's composer (attach, @, emoji; an Enter hint; a labelled
   /// Send). Same behaviour, different dress; v2 surfaces keep "classic".
   composerStyle?: "classic" | "v3"
+  /// Row layout: which messages to mark as yours ("me") or urgent.
+  messageHighlight?: (message: AgentMessage) => "me" | "urgent" | null
 }) {
   const compact = variant === "compact"
   const v3Composer = composerStyle === "v3"
@@ -857,6 +860,7 @@ export function AgentsConversationView({
                 renderActions={renderActions}
                 renderFooter={renderFooter}
                 renderMeta={renderMeta}
+                highlight={messageHighlight?.(item.message) ?? null}
                 // #644: the card inside the bubble reads the question's state
                 // from the thread, and its Answer button targets THIS message.
                 questionState={

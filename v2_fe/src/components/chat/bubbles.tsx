@@ -188,7 +188,11 @@ export function AgentChatBubble({
   renderActions,
   renderFooter,
   renderMeta,
+  highlight = null,
 }: {
+  /// Row layout (tf-message): "me" for a message that mentions or targets
+  /// you (tinted, with a ring on its left edge), "urgent" for an urgent one.
+  highlight?: "me" | "urgent" | null
   message: AgentMessage
   onRetry?: (nonce: string) => void
   onCancel?: (nonce: string) => void
@@ -328,7 +332,8 @@ export function AgentChatBubble({
     <article
       data-message-id={message.id}
       className={cn(
-        row ? "group relative -mx-4 flex gap-3 px-4 hover:bg-muted/40" : "flex",
+        row ? "group relative -mx-4 flex gap-3 px-4" : "flex",
+        row && (highlight === "me" ? "bg-accent/60 shadow-[inset_2px_0_0_var(--ring)]" : highlight === "urgent" ? "bg-destructive/5 shadow-[inset_2px_0_0_var(--destructive)]" : "hover:bg-muted/40"),
         row ? (continued ? "py-0.5" : "pt-2 pb-0.5") : alignRight ? "justify-end" : "justify-start",
       )}
     >

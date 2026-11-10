@@ -30,6 +30,7 @@ import type { TaskStatus } from "../lib/task-status"
 import { TaskLink } from "../components/task-link"
 import { timeAgo } from "../lib/time"
 import { useWorkspace } from "../workspace"
+import { ActorDetails, type Actor } from "./ActorDetails"
 import { roomFormError, type RoomMembers, type RoomPowers } from "./room-logic"
 
 function Section({ title, count, children, action }: { title: string; count?: number; children: React.ReactNode; action?: React.ReactNode }) {
@@ -46,8 +47,8 @@ function Section({ title, count, children, action }: { title: string; count?: nu
   )
 }
 
-function About({ channel, powers, onSaved }: { channel: TaskflowAgentChannel; powers: RoomPowers; onSaved: (c: TaskflowAgentChannel) => void }) {
-  const [editing, setEditing] = useState(false)
+function About({ channel, powers, onSaved, startEditing = false }: { channel: TaskflowAgentChannel; powers: RoomPowers; onSaved: (c: TaskflowAgentChannel) => void; startEditing?: boolean }) {
+  const [editing, setEditing] = useState(startEditing && powers.edit)
   const [title, setTitle] = useState(channel.title)
   const [topic, setTopic] = useState(channel.topic ?? "")
   const [busy, setBusy] = useState(false)
@@ -140,7 +141,17 @@ export function RoomPanel({
   onAddMember,
   onJumpToMessage,
   onClose,
+  actor = null,
+  onActor,
+  onMessage,
+  editRequest = 0,
 }: {
+  /// Someone picked in Members or from an @mention: show who they are.
+  actor?: Actor | null
+  onActor?: (a: Actor | null) => void
+  onMessage?: (a: Actor) => void
+  /// Bumped by the header's "Edit room": opens About in edit mode.
+  editRequest?: number
   channel: TaskflowAgentChannel
   members: RoomMembers
   powers: RoomPowers
@@ -200,6 +211,8 @@ export function RoomPanel({
   }
 
   const iAmIn = members.people.find((p) => p.user === meUser)
+  if (actor && onActor) return <ActorDetails actor={actor} onBack={() => onActor(null)} onMessage={(a) => onMessage?.(a)} />
+  const pick = (a: Actor) => onActor?.(a)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar">
@@ -212,7 +225,7 @@ export function RoomPanel({
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <About key={`${channel.id}:${channel.title}:${channel.topic ?? ""}`} channel={channel} powers={powers} onSaved={saved} />
+        <About key={`${channel.id}:${channel.title}:${channel.topic ?? ""}:${editRequest}`} channel={channel} powers={powers} onSaved={saved} startEditing={editRequest > 0} />
 
         {liveTerms.length ? (
           <Section title="Live in this room" action={<span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 rounded-full bg-running" />{working.length} working</span>}>
@@ -232,9 +245,11 @@ export function RoomPanel({
               <p className="mb-1 text-xs font-medium text-muted-foreground">Agents</p>
               <ul className="mb-3 grid gap-0.5">
                 {members.agents.map((a) => (
-                  <li key={a.id} className="group flex items-center gap-2 rounded-md px-1 py-1">
-                    <ActorAvatar model={guessModel(a.runtime) ?? guessModel(a.name)} name={a.name} status={a.online ? (a.working ? "running" : "idle") : "offline"} size="sm" />
-                    <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
+                  <li key={a.id} className="group flex items-center gap-2 rounded-md px-1 py-1 hover:bg-muted/60">
+                    <button type="button" className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left hover:underline" onClick={() => pick({ kind: "agent", id: a.id })} title={`About ${a.name}`}>
+                      <ActorAvatar model={guessModel(a.runtime) ?? guessModel(a.name)} name={a.name} status={a.online ? (a.working ? "running" : "idle") : "offline"} size="sm" />
+                      <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
+                    </button>
                     {a.online && a.working ? (
                       <TaskLink task={a.working.id} className="shrink-0" title={`#${a.working.id} ${a.working.title}`}>
                         <StatusChip tone="running" label="Working" />
@@ -270,12 +285,14 @@ export function RoomPanel({
                   const self = p.user === meUser
                   const canRemove = p.memberId != null && (self ? channel.kind !== "direct" && !channel.is_public : powers.removeMembers)
                   return (
-                    <li key={p.user} className="group flex items-center gap-2 rounded-md px-1 py-1">
-                      <ActorAvatar name={p.name} size="sm" />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {p.name}
-                        {self ? <span className="text-muted-foreground"> (you)</span> : null}
-                      </span>
+                    <li key={p.user} className="group flex items-center gap-2 rounded-md px-1 py-1 hover:bg-muted/60">
+                      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left hover:underline" onClick={() => pick({ kind: "user", id: p.user })} title={`About ${p.name}`}>
+                        <ActorAvatar name={p.name} size="sm" />
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {p.name}
+                          {self ? <span className="text-muted-foreground"> (you)</span> : null}
+                        </span>
+                      </button>
                       <span className="shrink-0 text-xs text-muted-foreground capitalize">{p.role ?? ""}</span>
                       {canRemove ? (
                         <Button

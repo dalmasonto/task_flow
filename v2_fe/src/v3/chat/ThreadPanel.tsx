@@ -5,7 +5,7 @@
 /// thread bus (App's one stream publishes every threaded row), so nothing
 /// here opens a stream. A reply's audience is computed by the server: the
 /// root's author, earlier repliers and anyone mentioned by chip.
-import { useEffect, useRef, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { BellIcon, BellOffIcon, SendIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -27,6 +27,7 @@ import { markThreadRead, setThreadFollowed } from "@/lib/chat-summary-api"
 import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
 import { timeAgo } from "../lib/time"
+import { useWorkspace } from "../workspace"
 import { focusComposerIn } from "./focus"
 import { mergeThread } from "./thread-logic"
 
@@ -40,6 +41,7 @@ function Row({ m, me, now }: { m: ThreadMessage; me: number | null; now: number 
         <p className="text-xs">
           <span className="font-medium">{name}</span> <span className="text-muted-foreground">{timeAgo(m.created_at, now) ?? ""}</span>
           {m.thread_root != null && m.in_channel ? <span className="ml-1.5 text-muted-foreground">· also sent to the channel</span> : null}
+          {m.thread_root == null && m.reply_to != null ? <span className="ml-1.5 text-muted-foreground">· replied in the room</span> : null}
         </p>
         <MarkdownRenderer content={m.body_markdown} compact className="text-sm" />
         {m.attachments?.length ? (
@@ -84,6 +86,18 @@ export function ThreadPanel({ channel, root, currentUser, onClose, following = n
   // channel (a column update, so no live event); say so instead of showing it.
   const [rootDeleted, setRootDeleted] = useState(false)
   const thread = loaded?.key === key ? loaded.thread : null
+  // Agents usually answer with a quoted reply in the room (reply_to), not a
+  // thread reply, so a thread on their question looked empty. Show those
+  // too, in time order with the thread's own replies, marked as such.
+  const { live } = useWorkspace()
+  const replies = useMemo(() => {
+    if (!thread) return []
+    const own = new Set(thread.replies.map((r) => r.id))
+    const quoted = (live?.agentMessages ?? []).filter(
+      (m): m is ThreadMessage => "id" in m && m.channel === channel && m.reply_to === root && m.thread_root == null && !own.has(m.id),
+    )
+    return [...thread.replies, ...quoted].sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.id - b.id)
+  }, [thread, live?.agentMessages, channel, root])
   const error = loaded?.key === key ? loaded.error : null
   // The toggle answers at once; the list's refetch catches up behind it.
   const [followOverride, setFollowOverride] = useState<boolean | null>(null)
@@ -198,11 +212,11 @@ export function ThreadPanel({ channel, root, currentUser, onClose, following = n
             </ul>
             <div className="my-4 flex items-center gap-2 text-xs text-muted-foreground">
               <span className="h-px flex-1 bg-border" />
-              {thread.replies.length ? `${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}` : "No replies yet"}
+              {replies.length ? `${replies.length} ${replies.length === 1 ? "reply" : "replies"}` : "No replies yet"}
               <span className="h-px flex-1 bg-border" />
             </div>
             <ul className="space-y-4">
-              {thread.replies.map((m) => (
+              {replies.map((m) => (
                 <Row key={m.id} m={m} me={currentUser?.id ?? null} now={now} />
               ))}
             </ul>

@@ -3,7 +3,7 @@
 /// asks the server (message text, newest first), so it finds messages older
 /// than what's loaded too. A hit that's loaded scrolls into view.
 import { useEffect, useState } from "react"
-import { PanelRightIcon, SearchIcon, XIcon } from "lucide-react"
+import { PanelRightIcon, SearchIcon, SettingsIcon, XIcon } from "lucide-react"
 
 import type { TaskflowAgentMessage } from "@/api/client"
 import { Button } from "@/components/ui/button"
@@ -99,6 +99,7 @@ export function RoomHeader({
   members,
   channelId,
   panelOpen,
+  onEditRoom,
   onTogglePanel,
   onJump,
 }: {
@@ -108,6 +109,8 @@ export function RoomHeader({
   members: RoomMembers | null
   channelId: number | null
   panelOpen: boolean
+  /// Shown when you may edit the room: opens Room details in edit mode.
+  onEditRoom?: () => void
   onTogglePanel: () => void
   onJump: (id: number) => boolean
 }) {
@@ -137,6 +140,11 @@ export function RoomHeader({
         {channelId != null ? (
           <Button variant="ghost" size="icon-sm" aria-label="Search this room" aria-pressed={searching} onClick={() => setSearching((s) => !s)}>
             <SearchIcon />
+          </Button>
+        ) : null}
+        {onEditRoom ? (
+          <Button variant="ghost" size="icon-sm" aria-label="Edit room" title="Edit room" onClick={onEditRoom}>
+            <SettingsIcon />
           </Button>
         ) : null}
         <Button variant="ghost" size="icon-sm" aria-label={panelOpen ? "Hide room details" : "Show room details"} aria-expanded={panelOpen} className={cn(panelOpen && "bg-muted")} onClick={onTogglePanel}>

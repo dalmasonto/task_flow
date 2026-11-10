@@ -3,7 +3,7 @@
 /// `useAgentChat` + `AgentsConversationView`, kept whole; v3 owns the layout,
 /// the conversation list, and #TSK1092: opening a chat puts the cursor in its
 /// message box.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeftIcon, HashIcon, MessagesSquareIcon, PaletteIcon, PencilIcon, SearchIcon, UsersIcon } from "lucide-react"
 
@@ -44,6 +44,9 @@ import { useTypers } from "./use-typing"
 import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
 import type { FollowedThread } from "@/lib/chat-summary-api"
 import { focusComposerIn } from "./focus"
+import { type Actor } from "./ActorDetails"
+import { ActorMentionContext } from "@/lib/markdown-contexts"
+import { mentionsUser } from "./chat-logic"
 import { ThreadPanel } from "./ThreadPanel"
 import { channelIdOf } from "./thread-logic"
 import { useDetail } from "../lib/use-detail"
@@ -94,13 +97,24 @@ function ThreadRow({ t, room, now, onOpen }: { t: FollowedThread; room: string |
   )
 }
 
-function RowIcon({ row, agentRuntime }: { row: ChatRow; agentRuntime?: string | null }) {
+/// chat.html's conversation avatars: an agent DM shows the agent's model,
+/// a person their initials, and a room its kind's icon with up to three of
+/// its members (agents first) along the bottom edge.
+function RowIcon({ row, agentRuntime, runtimeOf }: { row: ChatRow; agentRuntime?: string | null; runtimeOf: (title: string) => string | null }) {
   if (row.kind === "agent") return <ActorAvatar model={guessModel(agentRuntime) ?? guessModel(row.title)} name={row.title} status={row.online ? "running" : "offline"} size="md" />
   if (row.kind === "person") return <ActorAvatar name={row.title} size="md" />
   const Icon = row.kind === "group" ? UsersIcon : /design/i.test(row.title) ? PaletteIcon : HashIcon
+  const faces = row.faces ?? []
   return (
-    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground" aria-hidden>
-      <Icon className="size-4" />
+    <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground" aria-hidden>
+      <Icon className={cn("size-4", faces.length && "-translate-y-1")} />
+      {faces.length ? (
+        <span className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 -space-x-1">
+          {faces.map((f) => (
+            <ActorAvatar key={f.name} name={f.name} model={f.agent ? (guessModel(runtimeOf(f.name)) ?? guessModel(f.name)) : null} size="xs" className="ring-1 ring-background" />
+          ))}
+        </span>
+      ) : null}
     </span>
   )
 }
@@ -168,10 +182,10 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
         aria-current={activeId === r.id ? "page" : undefined}
         className={cn(
           "flex w-full min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-          activeId === r.id ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
+          activeId === r.id ? "bg-accent text-accent-foreground shadow-[inset_2px_0_0_var(--ring)]" : "hover:bg-muted/60",
         )}
       >
-        <RowIcon row={r} agentRuntime={runtimeOf(r.title)} />
+        <RowIcon row={r} agentRuntime={runtimeOf(r.title)} runtimeOf={runtimeOf} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
             <span className={cn("min-w-0 flex-1 truncate text-sm", r.unread ? "font-semibold" : "font-medium")}>{r.title}</span>
@@ -377,15 +391,32 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
     navigate(`/v3/chat/${chatIdToSlug(chat.id)}${q ? `?${q}` : ""}`, { replace: true })
   }, [channelParam, live?.agentChannelsLoaded, channelChats, directChats, params, navigate])
 
+  // ?user=<id> (a person's "Message" in the details panel): open your DM
+  // with them, starting one if none exists yet.
+  const userParam = params.get("user")
+  const handledUser = useRef<string | null>(null)
+  useEffect(() => {
+    if (!userParam || handledUser.current === userParam || !live?.agentChannelsLoaded) return
+    handledUser.current = userParam
+    const id = Number(userParam)
+    const existing = directChats.find((c) => c.liveMemberUserId === id)
+    const person = live.members.find((m) => m.user === id)
+    params.delete("user")
+    setParams(params, { replace: true })
+    if (existing) open(existing.id)
+    else if (person) void createConversation("direct", person.display_name, [{ kind: "user", user: id }])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ?user= value; the ref guards repeats
+  }, [userParam, live?.agentChannelsLoaded, directChats])
+
   // Desktop with no conversation chosen: open the project room, as v2 does.
   // The query string goes along: ?new=room from the sidebar's + must survive
   // this redirect, or the new-conversation panel opens and closes at once.
   useEffect(() => {
-    if (slug || isBelowLg || agentParam || channelParam || !live?.agentChannelsLoaded) return
+    if (slug || isBelowLg || agentParam || userParam || channelParam || !live?.agentChannelsLoaded) return
     const first = findPublicRoomChat(live, currentUser) ?? directChats[0]
     const q = params.toString()
     if (first) navigate(`/v3/chat/${chatIdToSlug(first.id)}${q ? `?${q}` : ""}`, { replace: true })
-  }, [slug, isBelowLg, agentParam, channelParam, live, currentUser, directChats, navigate, params])
+  }, [slug, isBelowLg, agentParam, userParam, channelParam, live, currentUser, directChats, navigate, params])
 
   // #TSK1092: a newly opened conversation puts the cursor in its message box.
   const selectedId = selectedChat?.id ?? null
@@ -445,6 +476,23 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
       }
       return !o
     })
+  }
+  // Someone opened from Members or an @mention chip, and "Edit room".
+  const [actor, setActor] = useState<Actor | null>(null)
+  const [editRequest, setEditRequest] = useState(0)
+  const openPanel = () => (isWide ? setPanelPref(true) : setPanelSheet(true))
+  const showActor = useCallback(
+    (kind: "user" | "agent", id: number) => {
+      setActor({ kind, id })
+      if (isWide) setPanelPref(true)
+      else setPanelSheet(true)
+    },
+    [isWide],
+  )
+  const messageActor = (a: Actor) => {
+    setActor(null)
+    setPanelSheet(false)
+    navigate(`/v3/chat?${a.kind === "agent" ? "agent" : "user"}=${a.id}`)
   }
   const channel = channelId != null ? (live?.agentChannels.find((c) => c.id === channelId) ?? null) : null
   const members = useMemo(
@@ -587,6 +635,10 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
           return jumpTo(id)
         }}
         onClose={isWide ? undefined : () => setPanelSheet(false)}
+        actor={actor}
+        onActor={setActor}
+        onMessage={messageActor}
+        editRequest={editRequest}
       />
     ) : null
 
@@ -638,6 +690,15 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
                   channelId={channelId}
                   panelOpen={panelOpen}
                   onTogglePanel={togglePanel}
+                  onEditRoom={
+                    powers?.edit
+                      ? () => {
+                          setActor(null)
+                          setEditRequest((n) => n + 1)
+                          openPanel()
+                        }
+                      : undefined
+                  }
                   onJump={jumpTo}
                 />
                 {channel?.archived ? (
@@ -651,8 +712,10 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
                   </div>
                 ) : null}
                 {extras.pins?.length ? <PinBar key={channelId ?? 0} pins={extras.pins} onJump={jumpTo} /> : null}
+                <ActorMentionContext.Provider value={showActor}>
                 <AgentsConversationView
                   {...outletContext}
+                  messageHighlight={(m) => (currentUser && m.from !== "user" && mentionsUser(m.body, currentUser.id) ? "me" : m.priority === "blocking" ? "urgent" : null)}
                   bare
                   readOnly={!!channel?.archived}
                   onComposerInput={signalTyping ? () => void sendTyping(channel.id) : undefined}
@@ -668,6 +731,7 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
                   threadSummaries={threadSummaries}
                   mayDrive={(id) => mayDrive(id) !== false}
                 />
+                </ActorMentionContext.Provider>
               </div>
             ) : (
               <Empty className="m-auto max-w-sm">
