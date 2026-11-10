@@ -95,10 +95,18 @@ export function parseUIState(raw: unknown, userId: number, projectId: number): D
 /// `EntityTable<T, "userId">` umbrella: `EntityTable<T, "userId" | "projectId">`
 /// distributes that union of prop names to `number`, so it would type the key as
 /// a bare id and let `get(4)` compile against a table whose real key is the pair.
+/// #1083: side-panel widths, per user and per panel (`design.chat`,
+/// `db.side`…), so a reload keeps them. They sit with the canvas settings.
+export type PanelWidthRow = { userId: number; key: string; width: number; updatedAt: number }
+
 const db = new Dexie("taskflow_design_ui") as Dexie & {
   canvas: Table<DesignUIState, DesignUIKey>
+  panels: Table<PanelWidthRow, [number, string]>
 }
 db.version(1).stores({ canvas: "[userId+projectId]" })
+// v2 adds `panels`. Never edit the v1 line: installed browsers upgrade by
+// running each declaration in order.
+db.version(2).stores({ canvas: "[userId+projectId]", panels: "[userId+key]" })
 
 export { db }
 
@@ -121,5 +129,21 @@ export async function writeUIState(state: DesignUIState): Promise<void> {
     await db.canvas.put({ ...state, updatedAt: Date.now() })
   } catch {
     // Losing a viewport is not worth surfacing.
+  }
+}
+
+export async function readPanelWidthRow(userId: number, key: string): Promise<number | null> {
+  try {
+    return (await db.panels.get([userId, key]))?.width ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function writePanelWidthRow(userId: number, key: string, width: number): Promise<void> {
+  try {
+    await db.panels.put({ userId, key, width, updatedAt: Date.now() })
+  } catch {
+    // A width that doesn't stick is not worth surfacing.
   }
 }

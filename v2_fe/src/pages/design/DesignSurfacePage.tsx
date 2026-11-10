@@ -4,7 +4,10 @@
 import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
 import { useTypers } from "@/v3/chat/use-typing"
 import { TypingLine } from "@/v3/chat/pins"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import { DESIGN_CHAT_PANEL, DESIGN_SIDE_PANEL } from "@/components/panels/panel-width"
+import { ResizeHandle } from "@/components/panels/resize-handle"
+import { useSidePanels } from "@/components/panels/use-side-panels"
 
 import { sandboxTokenIsFresh, sandboxTokenSource } from "@/lib/sandbox-token"
 import {
@@ -628,6 +631,14 @@ export function DesignSurfacePage({
   // the shared UI-state record.
   const [chatOpen, setChatOpen] = useState(() => readPanelPref("chat"))
   const [panelOpen, setPanelOpen] = useState(() => readPanelPref("panel"))
+  // #1083: both side panels resizable (same default width, remembered per
+  // user with the canvas settings in taskflow_design_ui).
+  const { rowRef: panelRow, leftWidth: chatWidth, rightWidth: sideWidth, leftHandle: chatHandle, rightHandle: sideHandle } = useSidePanels(
+    DESIGN_CHAT_PANEL,
+    DESIGN_SIDE_PANEL,
+    currentUser?.id ?? null,
+    { left: chatOpen, right: panelOpen },
+  )
   const togglePanel = (which: "chat" | "panel") => {
     const set = which === "chat" ? setChatOpen : setPanelOpen
     const other = which === "chat" ? setPanelOpen : setChatOpen
@@ -1378,16 +1389,18 @@ export function DesignSurfacePage({
         </div>
       </header>
 
-      <div className="relative flex min-h-0 flex-1">
+      <div ref={panelRow} className="relative flex min-h-0 flex-1">
         {/* LEFT: the design chat rail — the reusable chat, filtered to design.
             Beside the canvas on wide screens; an overlay below `lg`. */}
         <aside
           className={cn(
             "min-h-0 flex-col border-r bg-background",
-            "absolute inset-y-0 left-0 z-30 w-[min(380px,100%)] shadow-2xl lg:static lg:z-auto lg:w-[380px] lg:shrink-0 lg:shadow-none",
+            "absolute inset-y-0 left-0 z-30 w-[min(380px,100%)] shadow-2xl lg:relative lg:z-auto lg:w-(--panel-w) lg:shrink-0 lg:shadow-none",
             chatOpen ? "flex" : "hidden",
           )}
+          style={{ "--panel-w": `${chatWidth}px` } as CSSProperties}
         >
+          <ResizeHandle {...chatHandle} label="Resize the design chat" />
           {/* #509: an overlay needs its own way out — the toolbar toggle can
               be scrolled out of view on a phone. */}
           <div className="flex shrink-0 items-center justify-between border-b px-3 py-1 lg:hidden">
@@ -1531,10 +1544,12 @@ export function DesignSurfacePage({
         <aside
           className={cn(
             "min-h-0 flex-col border-l bg-background",
-            "absolute inset-y-0 right-0 z-30 w-[min(380px,100%)] shadow-2xl lg:static lg:z-auto lg:w-[380px] lg:shrink-0 lg:shadow-none",
+            "absolute inset-y-0 right-0 z-30 w-[min(380px,100%)] shadow-2xl lg:relative lg:z-auto lg:w-(--panel-w) lg:shrink-0 lg:shadow-none",
             panelOpen ? "flex" : "hidden",
           )}
+          style={{ "--panel-w": `${sideWidth}px` } as CSSProperties}
         >
+          <ResizeHandle {...sideHandle} label="Resize the side panel" />
           <div className="flex shrink-0 justify-end border-b px-2 py-1 lg:hidden">
             <Button variant="ghost" size="icon-sm" aria-label="Close side panel" onClick={() => togglePanel("panel")}>
               <XIcon className="size-4" />

@@ -6,7 +6,7 @@
 /// a model's sample rows) in the middle, and the models list on the right,
 /// which the model editor takes over while a model is open. A field a person
 /// changes becomes theirs and locked; agents must ask before touching it.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Background, Controls, type Edge, MarkerType, MiniMap, type Node, type NodeChange, ReactFlow, ReactFlowProvider, applyNodeChanges, useReactFlow, useViewport } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import { DatabaseIcon, GitBranchIcon, HashIcon, HistoryIcon, MessageSquareIcon, MinusIcon, MousePointerClickIcon, PlusIcon, RefreshCwIcon, SearchIcon, TableIcon, XIcon } from "lucide-react"
@@ -17,6 +17,9 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
+import { DB_CHAT_PANEL, DB_SIDE_PANEL } from "@/components/panels/panel-width"
+import { ResizeHandle } from "@/components/panels/resize-handle"
+import { useSidePanels } from "@/components/panels/use-side-panels"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import {
   DbSaveError,
@@ -84,6 +87,7 @@ export function DatabasePage() {
 
 function DatabaseWorkspace({ project, reload }: { project: Project; reload: number }) {
   const projectId = liveId(project.id)
+  const { currentUser } = useWorkspace()
   const now = useLivenessNow()
   const [schema, setSchema] = useState<DbSchema | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -94,6 +98,8 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
   const [saveError, setSaveError] = useState<SaveState>(null)
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(true)
+  // #1083: both sides resizable, the same default width, remembered per user.
+  const { rowRef: panelRow, leftWidth, rightWidth, leftHandle, rightHandle } = useSidePanels(DB_CHAT_PANEL, DB_SIDE_PANEL, currentUser?.id ?? null, { left: chatOpen, right: true })
   const [query, setQuery] = useState("")
   const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
   // React Flow hides a node until it has measured it; a controlled node list
@@ -281,10 +287,14 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1">
+      <div ref={panelRow} className="relative flex min-h-0 flex-1">
         {/* LEFT: the database room */}
         {chatOpen ? (
-          <aside className="absolute inset-y-0 left-0 z-30 flex w-[min(20rem,100%)] min-h-0 flex-col border-r border-border bg-background shadow-2xl lg:relative lg:z-auto lg:w-80 lg:shrink-0 lg:shadow-none">
+          <aside
+            className="absolute inset-y-0 left-0 z-30 flex w-[min(24rem,100%)] min-h-0 flex-col border-r border-border bg-background shadow-2xl lg:relative lg:z-auto lg:w-(--panel-w) lg:shrink-0 lg:shadow-none"
+            style={{ "--panel-w": `${leftWidth}px` } as CSSProperties}
+          >
+            <ResizeHandle {...leftHandle} label="Resize the database chat" />
             <DbRoom projectId={projectId} project={project} onClose={() => setChatOpen(false)} />
           </aside>
         ) : null}
@@ -351,7 +361,11 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
         </main>
 
         {/* RIGHT: the models list, or the editor for the open model */}
-        <aside className="hidden min-h-0 w-80 shrink-0 flex-col border-l border-border bg-background md:flex">
+        <aside
+          className="relative hidden min-h-0 w-80 shrink-0 flex-col border-l border-border bg-background md:flex lg:w-(--panel-w)"
+          style={{ "--panel-w": `${rightWidth}px` } as CSSProperties}
+        >
+          <ResizeHandle {...rightHandle} label="Resize the models panel" />
           {openModel ? (
             <ModelEditor
               key={`${draftNew ? "new" : openModel.name}@${version}`}
@@ -632,9 +646,6 @@ function DbRoom({ projectId, project, onClose }: { projectId: number; project: P
             renderAvatar={renderAvatar}
             senderBadge={(from) => (agents.some((a) => a.display_name === from) ? "agent" : null)}
           />
-          <p className="shrink-0 px-3 pb-3 text-xs text-muted-foreground">
-            Agents read this schema with <code>db_schema</code>. A field you change is yours: they have to ask before touching it.
-          </p>
         </div>
       )}
     </>
