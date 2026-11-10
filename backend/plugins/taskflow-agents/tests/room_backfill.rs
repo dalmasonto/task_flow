@@ -182,6 +182,8 @@ async fn a_room_created_for_a_project_rosters_its_existing_agents() {
             linked_user_label: None,
             instructions_markdown: None,
             instructions_updated_at: None,
+            provider: None,
+            model: None,
             last_seen_at: None,
             created_at: None,
         })

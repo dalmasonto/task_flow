@@ -156,6 +156,8 @@ pub enum CommentStatus {
     Sent,
     Addressed,
     Dismissed,
+    /// #5955: a person confirmed the fix ("Done" = resolved + dismissed).
+    Resolved,
 }
 
 /// An operator annotation anchored to an element on one rendered route.
@@ -218,6 +220,13 @@ pub struct DesignComment {
     /// pin thread can say "sent to X" and a person's reply can reach that agent.
     #[umbral(on_delete = "set_null")]
     pub sent_to_agent: Option<ForeignKey<taskflow_agents::models::TaskflowAgent>>,
+    /// #5955: who resolved it and when (a person; cleared on reopen).
+    #[umbral(string, max_length = 160)]
+    pub resolved_by_label: Option<String>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    /// #5955: the task made from (or linked to) this comment, same project.
+    #[umbral(on_delete = "set_null")]
+    pub task: Option<ForeignKey<taskflow_tasks::models::TaskflowTask>>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

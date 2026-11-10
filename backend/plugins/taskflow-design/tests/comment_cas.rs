@@ -113,8 +113,10 @@ async fn a_write_inside_a_dispatch_is_not_reverted() {
 
 }
 
-/// "When project P's DM is created mid-dispatch, dismiss comment C." The DM
-/// is created after the comments are loaded and before they are claimed.
+/// "When a room of project P is created mid-dispatch, dismiss comment C."
+/// Dispatch ensures the project's design room after the comments are loaded
+/// and before they are claimed (#5974: it posts there), so a test that removes
+/// the room first gets a channel `post_save` exactly in that window.
 fn on_dm_created() -> &'static Mutex<HashMap<i64, i64>> {
     static D: OnceLock<Mutex<HashMap<i64, i64>>> = OnceLock::new();
     D.get_or_init(|| {
@@ -141,12 +143,21 @@ async fn a_dispatch_whose_comments_were_all_taken_is_a_conflict_and_posts_nothin
     let (user, project) = app.create_member_with_project().await;
     let (agent, _) = seed_agent(project, "Builder").await;
     let id = comment(&app, user.id, project, "only").await;
+    // Remove the design room so dispatch re-creates it mid-request.
+    taskflow_agents::models::TaskflowAgentChannel::objects()
+        .filter(
+            taskflow_agents::models::taskflow_agent_channel::PROJECT.eq(project)
+                & taskflow_agents::models::taskflow_agent_channel::IS_DESIGN.eq(true),
+        )
+        .delete()
+        .await
+        .unwrap();
     on_dm_created().lock().unwrap().insert(project, id);
 
     let res = app
         .post_json_as(user.id, &format!("/api/design/{project}/dispatch"), &json!({ "comment_ids": [id], "agent_id": agent }))
         .await;
-    assert!(on_dm_created().lock().unwrap().get(&project).is_none(), "the hook ran (the DM was created)");
+    assert!(on_dm_created().lock().unwrap().get(&project).is_none(), "the hook ran (the design room was re-created)");
     assert_eq!(res.status(), 409, "{}", res.text());
     assert_eq!(status(&row(id).await), "dismissed");
     let posted = TaskflowAgentMessage::objects()

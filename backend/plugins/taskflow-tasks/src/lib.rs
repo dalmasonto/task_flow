@@ -22,6 +22,8 @@
 pub mod activity_write;
 pub mod models;
 pub mod session_timer;
+// #5907 1b: per-project board columns.
+pub mod statuses;
 pub mod urls;
 pub mod views;
 
@@ -47,6 +49,7 @@ impl Plugin for TaskflowTasksPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskActivity>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskSession>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskAttachment>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowProjectStatus>(),
         ]
     }
 
@@ -66,6 +69,9 @@ impl Plugin for TaskflowTasksPlugin {
         // The system owns the task work-timer: opening a session when a task
         // enters in_progress and closing it when it leaves, on every write path.
         session_timer::register();
+        // #5907 1b: keep every task's board column valid, and seed the old ones.
+        statuses::register();
+        tokio::spawn(statuses::backfill());
 
         // Seed closed_at for tasks that were already terminal before the column
         // existed, using updated_at as a best-effort close time. Idempotent: only

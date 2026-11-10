@@ -18,7 +18,8 @@
 //!     roster held only agents, so every human member was denied).
 //!   * task attachment → PROJECT-scoped: an active project member (human) or
 //!     an agent belonging to that project.
-//!   * superusers bypass both.
+//!   * a user's current profile photo (#1135) → any authenticated caller.
+//!   * superusers bypass all of these.
 //!   * a key that maps to NO attachment row is DENIED (not "public"): orphans
 //!     become invisible rather than leaked — the same failure direction the
 //!     REST scope chose for NULL channels.
@@ -35,7 +36,7 @@ use taskflow_agents::models::{
     taskflow_agent_channel, taskflow_agent_channel_member, TaskflowMessageAttachment,
     taskflow_message_attachment,
 };
-use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
+use taskflow_projects::models::{TaskflowProjectMember, TaskflowUserSettings, taskflow_project_member, taskflow_user_settings};
 use taskflow_tasks::models::{TaskflowTaskAttachment, taskflow_task_attachment};
 use umbral_auth::resolve_identity;
 
@@ -129,7 +130,6 @@ pub async fn media_access_allowed(headers: &HeaderMap, key: &str) -> bool {
     if let Caller::User { superuser: true, .. } = caller {
         return true;
     }
-    
 
     // Message attachment? Channel-scoped.
     if let Ok(Some(attachment)) = TaskflowMessageAttachment::objects()
@@ -154,8 +154,20 @@ pub async fn media_access_allowed(headers: &HeaderMap, key: &str) -> bool {
         return has_project_access(&caller, attachment.project.id()).await;
     }
 
+    // #1135: someone's CURRENT profile photo. Shown wherever that person
+    // appears (member lists, chat, across projects), so any signed-in caller
+    // may read it. Checked after the attachment rules: a key that is also an
+    // attachment keeps that stricter rule. Only `POST me/avatar` writes this
+    // column, with a server-minted key; a replaced photo's key stops matching.
+    if let Ok(Some(_)) = TaskflowUserSettings::objects()
+        .filter(taskflow_user_settings::AVATAR.eq(key))
+        .first()
+        .await
+    {
+        return true;
+    }
+
     // Unmapped key: nothing links it to a project or channel, so nobody but a
     // superuser has a claim to it. Deny.
-    eprintln!("Unmapped key");
     false
 }

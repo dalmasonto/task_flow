@@ -790,13 +790,18 @@ mod tests {
             orphaned: false,
             sent_to_agent: None,
             created_at: None,
+            resolved_by_label: None,
+            resolved_at: None,
+            task: None,
         };
         assert_eq!(
             keys(&serde_json::to_value(&comment).unwrap()),
             [
                 "author", "body", "component_name", "created_at", "element_path", "id",
-                "orphaned", "page_path", "project", "rect", "resolution_note", "scope",
-                "sent_to_agent", "snippet", "src_ref", "status", "thread_id", "viewport"
+                "orphaned", "page_path", "project", "rect", "resolution_note",
+                // #5955: the resolution and the comment's task.
+                "resolved_at", "resolved_by_label", "scope",
+                "sent_to_agent", "snippet", "src_ref", "status", "task", "thread_id", "viewport"
             ]
         );
     }

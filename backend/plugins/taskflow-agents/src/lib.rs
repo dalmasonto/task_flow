@@ -23,12 +23,26 @@ pub mod agent_auth;
 pub mod answers;
 // #5918: room edit, remove/leave, archive.
 pub mod channel_admin;
+// #5949: pins and reactions.
+pub mod pins;
+// #5983: per-room unread and mention counts.
+pub mod summary;
+// #5983: following threads.
+pub mod follows;
+// #5988: "X is writing".
+pub mod typing;
+// #5988 item 8: tools run per agent message.
+pub mod tools;
+// #5988 item 7: delivery receipts.
+pub mod receipts;
 pub mod channel_state;
 pub mod claims;
 // #1125: post_save for a row written by a guarded column update.
 pub mod emit;
 // #1136: rotate / revoke an agent's keys.
 pub mod keys;
+// #1078: an agent's display name, provider and model.
+pub mod profile;
 // #1136: a member's role, or removing them (lives here: removal revokes the
 // keys of agents they linked, and writes activity).
 pub mod members;
@@ -74,6 +88,10 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentMessage>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAttachment>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAnswer>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowMessagePin>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowMessageReaction>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowThreadFollow>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowMessageDelivery>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageClaim>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowWakeRule>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelState>(),
@@ -119,6 +137,8 @@ impl Plugin for TaskflowAgentsPlugin {
         block_on_ready(review_requests::install_review_request_guard(&ctx.pool))?;
         // #1113: wake-up rules — event hooks and the time sweep.
         wakeups::register();
+        // #5983: auto-follow a thread on replying to it.
+        follows::register();
         // #1126: release claims of agents that went silent.
         leases::start();
 

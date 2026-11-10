@@ -273,16 +273,27 @@ pub async fn summaries(channel_id: i64, roots: &[i64]) -> Result<Value, StatusCo
         .fetch()
         .await
         .map_err(internal)?;
-    let mut agg: std::collections::BTreeMap<i64, (i64, Option<chrono::DateTime<chrono::Utc>>)> = Default::default();
+    // #5983: newest first, so the repliers list reads "who replied lately".
+    let mut replies = replies;
+    replies.sort_by(|a, b| b.id.cmp(&a.id));
+    let mut agg: std::collections::BTreeMap<i64, (i64, Option<chrono::DateTime<chrono::Utc>>, Vec<String>)> = Default::default();
     for r in &replies {
         let Some(root) = r.thread_root else { continue };
-        let e = agg.entry(root).or_insert((0, None));
+        let e = agg.entry(root).or_insert((0, None, Vec::new()));
         e.0 += 1;
         e.1 = e.1.max(r.created_at);
+        if e.2.len() < 3 && !e.2.contains(&r.sender_label) {
+            e.2.push(r.sender_label.clone());
+        }
     }
     let out: serde_json::Map<String, Value> = agg
         .into_iter()
-        .map(|(root, (n, last))| (root.to_string(), json!({ "reply_count": n, "last_reply_at": last })))
+        .map(|(root, (n, last, who))| {
+            (
+                root.to_string(),
+                json!({ "reply_count": n, "last_reply_at": last, "last_reply_by": who.first(), "last_repliers": who }),
+            )
+        })
         .collect();
     Ok(Value::Object(out))
 }
@@ -348,7 +359,16 @@ pub async fn get_summaries(
 ) -> Result<Response, StatusCode> {
     let channel = crate::views::ensure_channel_visible(user, channel).await?;
     let roots = parse_roots(&q.roots)?;
-    Ok(Json(summaries(channel.id, &roots).await?).into_response())
+    let mut out = summaries(channel.id, &roots).await?;
+    // #5983: whether the caller follows each thread.
+    let followed = crate::follows::followed_by(user, &roots).await;
+    if let Value::Object(map) = &mut out {
+        for (k, v) in map.iter_mut() {
+            let following = k.parse::<i64>().is_ok_and(|id| followed.contains(&id));
+            v["following"] = json!(following);
+        }
+    }
+    Ok(Json(out).into_response())
 }
 
 #[cfg(test)]

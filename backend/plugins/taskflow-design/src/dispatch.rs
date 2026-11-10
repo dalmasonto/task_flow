@@ -31,6 +31,10 @@ pub struct DispatchInput {
     pub comment_ids: Vec<i64>,
     /// The agent to hand these to. Must belong to this project.
     pub agent_id: i64,
+    /// #5955 Reassign: also re-send comments already `sent` (to another
+    /// agent, or again). Off by default, so a stray re-click can't re-send.
+    #[serde(default)]
+    pub reassign: bool,
 }
 
 /// `POST /api/design/{project}/dispatch`
@@ -65,7 +69,7 @@ pub async fn dispatch_comments(
             .filter(
                 design_comment::PROJECT.eq(project_id)
                     & design_comment::ID.eq(*id)
-                    & design_comment::STATUS.eq("open"),
+                    & design_comment::STATUS.in_(if input.reassign { &["open", "sent"][..] } else { &["open"][..] }),
             )
             .first()
             .await
@@ -85,12 +89,15 @@ pub async fn dispatch_comments(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    // Find-or-create the caller's DM with the agent. Server-side dedup by
-    // roster mirrors what the chrome does; two dispatches reuse one room. The
-    // ROW comes back, not just its id: the message's `is_design` is derived from
-    // the destination room, and deriving it needs the room.
-    let dm = find_or_create_dm(project_id, user_id, input.agent_id, &agent.display_name).await?;
-    let channel = dm.id;
+    // #5974: dispatched comments go to the project's DESIGN ROOM, targeted at
+    // the agent (design.html: "Comments you send land here too, so the reply
+    // sits under what you asked"). The whole project sees them there; the
+    // target is what types them into that agent's pane. Reassign posts a new
+    // message the same way and never edits an old one (an edit re-types it
+    // into every pane, #107). The ROW comes back, not just its id: the
+    // message's `is_design` is derived from the destination room.
+    let (_, room) = taskflow_agents::views::ensure_project_rooms(project_id).await?;
+    let channel = room.id;
 
     // Format the payload. The preamble tells the agent to screenshot before +
     // after — without a visual feedback loop the edits cannot be evaluated.
@@ -109,7 +116,8 @@ pub async fn dispatch_comments(
         v.insert("status".into(), json!(crate::comment_write::status_str(CommentStatus::Sent)));
         // #1123: remember who it went to ("sent to X"; reply notices).
         v.insert("sent_to_agent".into(), json!(agent.id));
-        match crate::comment_write::write(project_id, c.id, Some(&[CommentStatus::Open]), v).await {
+        let from: &[CommentStatus] = if input.reassign { &[CommentStatus::Open, CommentStatus::Sent] } else { &[CommentStatus::Open] };
+        match crate::comment_write::write(project_id, c.id, Some(from), v).await {
             Ok(row) => claimed.push(row),
             Err(crate::comment_write::WriteError::Conflict | crate::comment_write::WriteError::NotFound) => {}
             Err(e) => return Err(e.into()),
@@ -182,10 +190,9 @@ pub async fn dispatch_comments(
             sender_label: caller.username.clone(),
             body_markdown: body,
             priority: TaskflowMessagePriority::Normal,
-            // Derived from the destination, like both send paths: the DM is an
-            // ordinary room so this is `false` today, and it stays honest if
-            // `find_or_create_dm` ever answers with a marked room.
-            is_design: dm.is_design,
+            // Derived from the destination, like both send paths: the design
+            // room, so `true`.
+            is_design: room.is_design,
             client_nonce: None,
             edited_at: None,
             reply_to: None,

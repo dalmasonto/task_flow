@@ -27,6 +27,8 @@
 //! ```
 
 pub mod agent_views;
+// #5955: a person's Resolve and Reopen.
+pub mod comment_lifecycle;
 pub mod comment_write;
 pub mod compare;
 pub mod compare_api;

@@ -1666,6 +1666,19 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
         }
     }
 
+    // #1078 review: a NEW agent can't take a name another agent in the project
+    // already has (a second "reviewer (codex)" would read as the real one).
+    if existing_agent.is_none() {
+        // A new agent's name must be fit to show and not already someone's
+        // (#1078 review). A re-link keeps the name it already has.
+        if let Err(why) = crate::profile::clean_name(&display_name) {
+            return Ok((StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "field": "display_name", "detail": why }))).into_response());
+        }
+        if crate::profile::name_taken(project_id, &display_name, None).await? {
+            return Ok(crate::profile::name_taken_response());
+        }
+    }
+
     let tx_display_name = display_name.clone();
     let tx_identifier = identifier.clone();
     let instructions = normalize_markdown(instructions_markdown);
@@ -1726,6 +1739,8 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
                             linked_user_label: created_by_label.clone(),
                             instructions_markdown: tx_instructions.clone(),
                             instructions_updated_at: stamped,
+                            provider: None,
+                            model: None,
                             last_seen_at: None,
                             created_at: None,
                         })
@@ -3305,6 +3320,7 @@ pub async fn create_task_as_agent(
             created_at: None,
             github_repo: input.repo.as_deref().map(str::trim).filter(|repo| !repo.is_empty()).map(str::to_string),
             updated_at: None,
+            status_column: None,
         })
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -4956,6 +4972,17 @@ pub async fn list_channels_as_agent(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // #5949: how many pins each room holds, so an agent knows to read them.
+    let mut pins: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    for p in crate::models::TaskflowMessagePin::objects()
+        .filter(crate::models::taskflow_message_pin::PROJECT.eq(agent.project_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        *pins.entry(p.channel.id()).or_default() += 1;
+    }
+
     let visible: Vec<serde_json::Value> = channels
         .into_iter()
         // A shared room is visible to any in-project agent; a DM only if rostered.
@@ -4975,6 +5002,8 @@ pub async fn list_channels_as_agent(
                 // cosmetic (`models.rs`: titles are not load-bearing).
                 "is_public": c.is_public,
                 "is_design": c.is_design,
+                "archived": c.archived,
+                "pins": pins.get(&c.id).copied().unwrap_or(0),
             })
         })
         .collect();
@@ -5102,16 +5131,18 @@ pub async fn list_messages_as_agent(
         serialized.push(message_json(message, &own)?);
     }
 
+    // #5949: "agents read the pins first when they join": the first page of a
+    // room (no `since`) carries its pins.
+    let mut body = json!({
+        "messages": serialized,
+        "read_cursor": read_cursor,
+        "unread_count": messages.len(),
+    });
+    if params.since.is_none() {
+        body["pins"] = json!(crate::pins::pins_json(channel.id).await.map_err(|(s, _)| s)?);
+    }
     // `unread_count` is the size of THIS page, which is what the caller acts on.
-    Ok((
-        StatusCode::OK,
-        Json(json!({
-            "messages": serialized,
-            "read_cursor": read_cursor,
-            "unread_count": messages.len(),
-        })),
-    )
-        .into_response())
+    Ok((StatusCode::OK, Json(body)).into_response())
 }
 
 /// `GET /api/taskflow/agents/agents` (agent-authed) — the other agents in the

@@ -138,6 +138,14 @@ pub struct TaskflowAgent {
     pub linked_by: Option<ForeignKey<AuthUser>>,
     #[umbral(privileged, string, max_length = 160)]
     pub linked_user_label: Option<String>,
+    /// #1078: who makes the model behind this agent (`anthropic`, `openai`,
+    /// `google`, `other`), set by its owner/admin or linked human through
+    /// `PATCH /api/taskflow/agents/{agent}`. Null when nobody said.
+    #[umbral(privileged, string, max_length = 40)]
+    pub provider: Option<String>,
+    /// #1078: the model's name, free text (e.g. `claude-opus-5-5`).
+    #[umbral(privileged, string, max_length = 80)]
+    pub model: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
     /// #615: the agent's role instructions (markdown), read by the agent through
     /// `whoami`. `privileged`: auto-REST create/update strips it. The only
@@ -981,4 +989,106 @@ pub struct TaskflowTaskEvidence {
     pub author_label: String,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #5949: a pinned message. Its own table, never a column on the message (a
+/// message write re-types it into every agent pane, #107). One row per message;
+/// written only by `pins.rs`, which derives the pinner from the caller.
+/// `channel` is denormalized for the per-room list and its realtime group.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["message"]], indexes = [["channel", "id"]])]
+pub struct TaskflowMessagePin {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(choices, default = "user")]
+    pub pinned_by_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub pinned_by_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub pinned_by_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub pinned_by_label: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #5949: one reaction (an allowlisted short name) by one person or agent on
+/// one message. Toggled by `pins.rs`; unique per (message, emoji, reactor)
+/// through `reactor_key` (`user:<id>` / `agent:<id>`).
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["message", "emoji", "reactor_key"]], indexes = [["channel", "message", "id"]])]
+pub struct TaskflowMessageReaction {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(string, max_length = 24)]
+    pub emoji: String,
+    #[umbral(string, max_length = 40)]
+    pub reactor_key: String,
+    #[umbral(on_delete = "cascade")]
+    pub user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub label: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #5983 item 5: a person or agent following a thread. Its own table (a
+/// message write re-types it into panes, #107). Written by `follows.rs`: auto
+/// on posting a reply (and for the root's sender at the first reply), or by
+/// the follow toggle. `last_read_reply` is how far they've read the replies.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["root", "follower_key"]], indexes = [["project", "follower_key", "id"]])]
+pub struct TaskflowThreadFollow {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub root: ForeignKey<TaskflowAgentMessage>,
+    /// `user:<id>` / `agent:<id>`.
+    #[umbral(string, max_length = 40)]
+    pub follower_key: String,
+    #[umbral(on_delete = "cascade")]
+    pub user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: Option<ForeignKey<TaskflowAgent>>,
+    pub last_read_reply: Option<i64>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #5988 item 7: an agent's MCP typed this message into its tmux pane
+/// ("Delivered to Claude (main), pane %4"). Its own table, never a column on
+/// the message (#107). One per (message, agent); written only by the agent
+/// itself (`receipts.rs`), from its key.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["message", "agent"]], indexes = [["channel", "message", "id"]])]
+pub struct TaskflowMessageDelivery {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: ForeignKey<TaskflowAgent>,
+    /// The tmux pane id as tmux names it (`%4`), at most 32 characters.
+    #[umbral(string, max_length = 32)]
+    pub pane: Option<String>,
+    #[umbral(noedit, auto_now_add)]
+    pub delivered_at: Option<DateTime<Utc>>,
 }

@@ -299,6 +299,8 @@ pub async fn seed_agent_key(project: i64, denied: &[&str]) -> (String, i64) {
             linked_user_label: None,
             instructions_markdown: None,
             instructions_updated_at: None,
+            provider: None,
+            model: None,
             last_seen_at: None,
             created_at: None,
         })
@@ -369,6 +371,7 @@ pub async fn seed_task(project: i64, title: &str) -> i64 {
             github_repo: None,
             created_at: None,
             updated_at: None,
+            status_column: None,
         })
         .await
         .expect("seed task")
