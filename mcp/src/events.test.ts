@@ -145,6 +145,16 @@ describe("shouldDeliver", () => {
     expect(shouldDeliver(message({ sender_kind: "agent", sender_agent: 3 }), 3)).toBe(false);
   });
 
+  // #769: an agent saw its own REPLY come back. The own-message rule has to win
+  // over every later rule: a reply, a thread reply that names itself as a
+  // target, and an also-sent thread reply are all still its own words.
+  it("skips its own replies, including thread replies that target itself (#769)", () => {
+    const own = { sender_kind: "agent" as const, sender_agent: 3 };
+    expect(shouldDeliver(message({ ...own, reply_to: 6 }), 3)).toBe(false);
+    expect(shouldDeliver(message({ ...own, thread_root: 40, in_channel: false, targets: [{ kind: "agent", id: 3 }] }), 3)).toBe(false);
+    expect(shouldDeliver(message({ ...own, thread_root: 40, in_channel: true }), 3)).toBe(false);
+  });
+
   // #40 review: every message the agent can see is delivered so it stays aware
   // and can chat; whether it may ACT is a separate signal (canActOnMessage).
   it("delivers everything else — humans, other agents, and messages not aimed at it", () => {
