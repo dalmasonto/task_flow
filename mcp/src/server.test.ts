@@ -272,6 +272,7 @@ vi.mock("./client.js", async (importOriginal) => {
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 
 import {
   ambiguityRefusal,
@@ -381,7 +382,7 @@ describe("collisionWarning", () => {
 // ---- end to end, over an in-memory MCP transport ----
 
 /** A throwaway repo whose `.taskflow.json` defines two identities. */
-function twoProfileRepo(): string {
+function twoProfileRepo(toolGroups: string[] | null = ["design", "db", "toolbox", "agents-admin", "terminal"]): string {
   const dir = mkdtempSync(join(tmpdir(), "taskflow-server-"));
   const configPath = join(dir, ".taskflow.json");
   writeFileSync(
@@ -390,6 +391,9 @@ function twoProfileRepo(): string {
       server: "http://localhost:8000",
       project: 2,
       default_profile: "main",
+      // #1085: these cases exercise every tool, so every group starts on; the
+      // tool-group cases below build with null (core only).
+      ...(toolGroups ? { tool_groups: toolGroups } : {}),
       profiles: {
         main: { agent_id: 1, key: "tfk_main", display_name: "Claude (main)" },
         reviewer: { agent_id: 2, key: "tfk_rev", display_name: "Reviewer" },
@@ -400,10 +404,10 @@ function twoProfileRepo(): string {
 }
 
 /** A connected MCP client talking to a server built over `twoProfileRepo()`. */
-async function connectedClient(): Promise<Client> {
+async function connectedClient(configPath: string = twoProfileRepo()): Promise<Client> {
   // `env: {}` and an explicit configPath: the real environment must not decide
   // which identity this server resolves to.
-  const server = buildServer({ configPath: twoProfileRepo(), env: {} });
+  const server = buildServer({ configPath, env: {} });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "taskflow-test", version: "0.0.0" });
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -1490,5 +1494,70 @@ describe("wake-up tools", () => {
     const result = await client.callTool({ name: "update_wakeup", arguments: { profile: "main", id: 9, action: "cancel" } });
     expect(body(result).status).toBe("cancelled");
     expect(harness.calls).toContain("actOnWakeup:9:cancel");
+  });
+});
+
+
+// #1085: a fresh session lists only core; groups switch on by request.
+describe("tool groups (#1085)", () => {
+  const names = async (client: Client) => (await client.listTools()).tools.map((t) => t.name);
+
+  it("lists only core tools by default, plus design_guide to learn from", async () => {
+    const client = await connectedClient(twoProfileRepo(null));
+    const listed = await names(client);
+    expect(listed).toContain("whoami");
+    expect(listed).toContain("create_wakeup");
+    expect(listed).toContain("enable_tools");
+    expect(listed).toContain("design_guide");
+    expect(listed).not.toContain("design_write_page");
+    expect(listed).not.toContain("toolbox_list");
+    expect(listed).not.toContain("create_agent");
+    expect(listed.some((n) => n.startsWith("db_"))).toBe(false);
+  });
+
+  it("enable_tools shows a group and notifies the client; disable_tools hides it again", async () => {
+    const client = await connectedClient(twoProfileRepo(null));
+    let notified = 0;
+    client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+      notified += 1;
+    });
+    await client.callTool({ name: "enable_tools", arguments: { groups: ["design"] } });
+    expect(await names(client)).toContain("design_write_page");
+    await client.callTool({ name: "disable_tools", arguments: { groups: ["design"] } });
+    expect(await names(client)).not.toContain("design_write_page");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notified).toBe(2);
+  });
+
+  it("tells a stale client how to turn a hidden tool on", async () => {
+    const client = await connectedClient(twoProfileRepo(null));
+    const result = await client.callTool({ name: "design_write_page", arguments: {} });
+    expect(result.isError).toBe(true);
+    expect((result.content as Array<{ text: string }>)[0]!.text).toContain('enable_tools({"groups":["design"]})');
+  });
+
+  it("remembers the pick for the profile, so the next session starts with it", async () => {
+    const configPath = twoProfileRepo(null);
+    const first = await connectedClient(configPath);
+    // Two profiles: the pick is remembered against the one this terminal chose.
+    await first.callTool({ name: "select_profile", arguments: { profile: "main" } });
+    await first.callTool({ name: "enable_tools", arguments: { groups: ["toolbox"] } });
+    const second = await connectedClient(configPath);
+    await second.callTool({ name: "select_profile", arguments: { profile: "main" } });
+    expect(await names(second)).toContain("toolbox_list");
+    // The other profile in the same repo keeps its own (core-only) start.
+    const third = await connectedClient(configPath);
+    await third.callTool({ name: "select_profile", arguments: { profile: "reviewer" } });
+    expect(await names(third)).not.toContain("toolbox_list");
+  });
+
+  it("whoami reports the groups and what each would add", async () => {
+    const client = await connectedClient(twoProfileRepo(null));
+    const parsed = body(await client.callTool({ name: "whoami", arguments: { profile: "main" } }));
+    const groups = parsed.tool_groups as Array<{ group: string; enabled: boolean; tools: number }>;
+    expect(groups.find((g) => g.group === "core")!.enabled).toBe(true);
+    const design = groups.find((g) => g.group === "design")!;
+    expect(design.enabled).toBe(false);
+    expect(design.tools).toBeGreaterThan(10);
   });
 });

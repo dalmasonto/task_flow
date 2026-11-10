@@ -197,11 +197,20 @@ that for the rest of the session.
 - Tell people what you're doing: announce significant actions in chat or activity,
   so the user can reconstruct what happened from your messages alone.
 
+## Tool groups — only core is on at first
+To keep your context lean, a session starts with the **core** tools only.
+**whoami** lists the other groups (\`design\`, \`db\`, \`toolbox\`,
+\`agents-admin\`, \`terminal\`) and how many tools each adds. When your human
+asks for one, or the work needs it, call **enable_tools** (e.g.
+\`{"groups":["design"]}\`); **disable_tools** when you're done. The pick is
+remembered for your profile. If a tool you expect is missing, enable its group
+rather than concluding it doesn't exist.
+
 ## Design
-Projects have a Design surface (the \`design_*\` tools): screens built from shadcn
-classes on the project's tokens. Before your first design write in a session,
-call **design_guide** for the index and read the topics you need (start with
-\`tokens\`).
+Projects have a Design surface (the \`design_*\` tools, in the \`design\` group):
+screens built from shadcn classes on the project's tokens. Before your first
+design write in a session, call **design_guide** (always available) for the
+index and read the topics you need (start with \`tokens\`).
 
 ## Etiquette
 Keep humans informed through messages and activity; prefer attaching files over

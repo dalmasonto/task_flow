@@ -42,6 +42,27 @@ import {
 import { sessionIdentifier } from "./session-identifier.js";
 import { getConnectionStatus } from "./connect.js";
 import { isConnectedAs, selectProfile } from "./runtime.js";
+import {
+  GROUP_DESCRIPTIONS,
+  OPTIONAL_GROUPS,
+  TOOL_GROUPS,
+  cleanGroups,
+  groupOf,
+  hiddenToolMessage,
+  readRememberedGroups,
+  startingGroups,
+  writeRememberedGroups,
+} from "./tool-groups.js";
+import { createRequire } from "node:module";
+
+/** The package's own version, for the `initialize` result. */
+const PACKAGE_VERSION: string = (() => {
+  try {
+    return (createRequire(import.meta.url)("../package.json") as { version: string }).version;
+  } catch {
+    return "0.0.0";
+  }
+})();
 import { readStickyProfile } from "./sessions-store.js";
 
 /**
@@ -301,6 +322,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   });
   const config: TaskflowConfig = loadConfigFile(configPath);
   const env = options.env ?? process.env;
+  // #1085: set once the tool-group wiring at the end of this function runs.
+  let onProfileSelected: (profileName: string) => void = () => {};
+  let toolGroupsReport: () => unknown = () => undefined;
 
   // Per-profile registered session id, so `heartbeat` / `capture_terminal`
   // don't need the caller to thread a session id through every call.
@@ -309,7 +333,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   const server = new McpServer(
     {
       name: "taskflow-mcp",
-      version: "2.4.0",
+      // What `initialize` tells every client. It was hardcoded and drifted
+      // (it said 2.4.0 on 2.18.x), so it is read from the package itself.
+      version: PACKAGE_VERSION,
     },
     // Surfaced in the `initialize` result so the client shows the model how to
     // use these tools on connect — the workflow and conventions the per-tool
@@ -463,6 +489,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           connection: getConnectionStatus(),
           mirror: getMirrorStatus(),
           ...(toolbox ? { toolbox } : {}),
+          // #1085: what can be switched on, and what it would add.
+          tool_groups: toolGroupsReport(),
         });
         // #615/#616: the JSON escapes every newline, so long markdown is
         // unreadable there. Show it again as plain text when there is any —
@@ -519,6 +547,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .catch(() => null);
 
         await selectProfile(resolved);
+        onProfileSelected(resolved.profileName);
         // The pick is made, so the ambiguity is over: drop the cached roster
         // rather than let a stale one outlive what it was fetched for.
         roster = undefined;
@@ -2917,6 +2946,115 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         return fail(err);
       }
     },
+  );
+
+  // ---- #1085: tool groups ----------------------------------------------------
+  // Every tool above is registered; the optional groups are then switched off
+  // unless this profile starts with them. `enabledGroups` is the session's
+  // state; `applyGroups` makes the registry match it and, when anything
+  // changed, sends ONE tools/list_changed.
+  const registry = (server as unknown as { _registeredTools: Record<string, { enabled: boolean }> })._registeredTools;
+  let enabledGroups = new Set<string>();
+  let groupsProfile: string | undefined;
+  const applyGroups = (): boolean => {
+    let changed = false;
+    for (const [name, tool] of Object.entries(registry)) {
+      const group = groupOf(name);
+      const on = group === "core" || enabledGroups.has(group);
+      if (tool.enabled !== on) {
+        tool.enabled = on;
+        changed = true;
+      }
+    }
+    if (changed && server.isConnected()) server.sendToolListChanged();
+    return changed;
+  };
+  const groupsFor = (profileName: string | undefined) =>
+    startingGroups({
+      remembered: profileName ? readRememberedGroups(configPath, profileName) : undefined,
+      profile: profileName ? config.profiles[profileName]?.tool_groups : undefined,
+      file: config.tool_groups,
+    });
+  const useProfileGroups = (profileName: string | undefined) => {
+    groupsProfile = profileName;
+    enabledGroups = new Set(groupsFor(profileName));
+    applyGroups();
+  };
+  // Synchronously, before any tools/list: the profile env or the file names
+  // (no pane needed), else the file's defaults. Refined once the terminal's
+  // sticky pick is known.
+  {
+    const first = resolveProfileOrAsk(config, { env, configPath });
+    useProfileGroups(first.kind === "ambiguous" ? undefined : first.profile.profileName);
+    void paneOnce.then((pane) => {
+      const sticky = readStickyProfile({ configPath, pane });
+      const again = resolveProfileOrAsk(config, { env, configPath, sticky });
+      const name = again.kind === "ambiguous" ? undefined : again.profile.profileName;
+      if (name !== groupsProfile) useProfileGroups(name);
+    });
+  }
+  onProfileSelected = (profileName) => {
+    if (profileName !== groupsProfile) useProfileGroups(profileName);
+  };
+
+  // A stale client (one that cached the full list) calling a hidden tool gets
+  // told how to turn it on, not the SDK's bare "Tool x disabled".
+  const protocol = server.server as unknown as {
+    _requestHandlers?: Map<string, (request: { params: { name: string } }, extra: unknown) => Promise<unknown>>;
+  };
+  const sdkCall = protocol._requestHandlers?.get("tools/call");
+  if (sdkCall) {
+    protocol._requestHandlers!.set("tools/call", async (request, extra) => {
+      const name = request.params?.name;
+      const tool = name ? registry[name] : undefined;
+      if (tool && !tool.enabled) {
+        return { content: [{ type: "text", text: hiddenToolMessage(name!) }], isError: true };
+      }
+      return sdkCall(request, extra);
+    });
+  }
+
+  const groupsReport = () =>
+    TOOL_GROUPS.map((group) => ({
+      group,
+      enabled: group === "core" || enabledGroups.has(group),
+      tools: Object.keys(registry).filter((n) => groupOf(n) === group).length,
+      description: GROUP_DESCRIPTIONS[group],
+    }));
+  toolGroupsReport = groupsReport;
+
+  const toggleGroups = (groups: string[], on: boolean) => {
+    const picked = cleanGroups(groups);
+    for (const g of picked) {
+      if (on) enabledGroups.add(g);
+      else enabledGroups.delete(g);
+    }
+    const changed = applyGroups();
+    const remembered = groupsProfile
+      ? writeRememberedGroups(configPath, groupsProfile, [...enabledGroups])
+      : false;
+    return ok({
+      groups: groupsReport(),
+      changed,
+      ...(picked.length < groups.length ? { ignored: groups.filter((g) => !picked.includes(g as never)) } : {}),
+      note: changed
+        ? `The tool list changed${remembered ? " (remembered for this profile)" : ""}. Your client was notified (tools/list_changed); if the new tools don't appear, they will on its next start.`
+        : "Nothing changed.",
+    });
+  };
+
+  server.tool(
+    "enable_tools",
+    `Turn on optional tool groups for this session (core is always on). Groups: ${OPTIONAL_GROUPS.map((g) => `${g} (${GROUP_DESCRIPTIONS[g]})`).join("; ")}. Turn one on when your human asks ("open the design tools") or the work needs it. design_guide stays callable with design off, to learn first. The pick is remembered for this profile.`,
+    { groups: z.array(z.enum(OPTIONAL_GROUPS as [string, ...string[]])).min(1).describe("Groups to turn on.") },
+    async ({ groups }) => toggleGroups(groups, true),
+  );
+
+  server.tool(
+    "disable_tools",
+    "Turn optional tool groups off again for this session, to keep your context lean once you are done with them. Remembered for this profile.",
+    { groups: z.array(z.enum(OPTIONAL_GROUPS as [string, ...string[]])).min(1).describe("Groups to turn off.") },
+    async ({ groups }) => toggleGroups(groups, false),
   );
 
   return server;

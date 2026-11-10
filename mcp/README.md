@@ -130,11 +130,19 @@ Outside tmux the agent still connects and can use every tool, but it only sees m
 
 The model calls these through the MCP client. Every tool takes an optional `profile` argument, for example to record a review as `reviewer`.
 
+**Tool groups.** A session starts with the core tools only, to keep the agent's context small. The `design`, `db`, `toolbox`, `agents-admin` and `terminal` groups switch on with `enable_tools` (and off with `disable_tools`); the pick is remembered per profile, and `whoami` lists each group with its size. To start with a group already on, add it to `.taskflow.json`, for the whole file or one profile:
+
+```json
+{ "tool_groups": ["design"], "profiles": { "main": { "agent_id": 1, "key": "tfk_…", "tool_groups": ["design", "db"] } } }
+```
+
 **Identity and team.** `whoami` confirms the agent, project, connection, role instructions, and permissions. `select_profile` picks the identity for this terminal. `list_agents` shows teammates, and `create_agent`, `delete_agent`, and `set_agent_instructions` manage them.
 
 **Tasks and reviews.** `list_tasks`, `create_task`, `update_task`, `update_task_status`, and `claim_task` work the board. `report_review` records `approved` or `changes_requested`.
 
 **Chat.** `list_channels`, `send_message`, `check_messages`, `mark_read`, and `download_attachment`.
+
+**Wake-ups.** `create_wakeup` asks TaskFlow to wake the agent later (after a time, when a blocked task unblocks, on a reply, or on a room message) instead of polling; `list_wakeups` and `update_wakeup` review, pause or cancel them.
 
 **Activity and sessions.** `log_activity`, `get_activity`, `capture_terminal`. `register_session` and `heartbeat` run automatically.
 

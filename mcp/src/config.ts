@@ -39,6 +39,8 @@ export const profileSchema = z.object({
   agent_id: z.number().int(),
   key: z.string().min(1, "profile key must not be empty"),
   display_name: z.string().optional(),
+  /** #1085: tool groups this profile starts with besides core (e.g. ["design"]). */
+  tool_groups: z.array(z.string()).optional(),
 });
 
 /** The whole `.taskflow.json` file. */
@@ -46,6 +48,8 @@ export const taskflowConfigSchema = z.object({
   server: z.string().min(1, "server must not be empty"),
   project: z.number().int(),
   default_profile: z.string().optional(),
+  /** #1085: tool groups every profile in this file starts with, unless its own say otherwise. */
+  tool_groups: z.array(z.string()).optional(),
   profiles: z
     .record(z.string(), profileSchema)
     .refine((p) => Object.keys(p).length > 0, {
