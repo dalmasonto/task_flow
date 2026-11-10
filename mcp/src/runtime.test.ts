@@ -33,7 +33,7 @@ const tmux = vi.hoisted(() => {
   const stopMirror = vi.fn();
   return {
     notifyPane: vi.fn(async () => {}),
-    sendKeySteps: vi.fn(async () => {}),
+    sendPlannedSteps: vi.fn(async (plan: unknown[]) => ({ sent: plan.length, stoppedAt: null })),
     sendKeyToPane: vi.fn(async () => {}),
     typeLineToPane: vi.fn(async () => {}),
     stopMirror,
@@ -320,27 +320,33 @@ describe("#132: prompt answers replay only into the asking agent's pane", () => 
       ]),
     }) as never;
 
-  beforeEach(() => tmux.sendKeySteps.mockClear());
+  beforeEach(() => {
+    tmux.sendPlannedSteps.mockClear();
+  });
 
   it("presses the keys for THIS agent's prompt", async () => {
     const { client } = fakeClient();
     startAgentRuntime(contextFor("%4", client), () => {});
     await events.options?.onPromptAnswered!(answered(PROFILE.agentId));
-    expect(tmux.sendKeySteps).toHaveBeenCalledTimes(1);
+    expect(tmux.sendPlannedSteps).toHaveBeenCalledTimes(1);
+    // #1034: one screen-gated segment, waiting for the question's own text.
+    expect(tmux.sendPlannedSteps.mock.calls[0]![0]).toEqual([
+      { expect: "Pick one", steps: [{ key: "2" }, { key: "Enter" }] },
+    ]);
   });
 
   it("ignores another agent's answer — the group is project-wide", async () => {
     const { client } = fakeClient();
     startAgentRuntime(contextFor("%4", client), () => {});
     await events.options?.onPromptAnswered!(answered(PROFILE.agentId + 1));
-    expect(tmux.sendKeySteps).not.toHaveBeenCalled();
+    expect(tmux.sendPlannedSteps).not.toHaveBeenCalled();
   });
 
   it("ignores an answer that names no agent at all", async () => {
     const { client } = fakeClient();
     startAgentRuntime(contextFor("%4", client), () => {});
     await events.options?.onPromptAnswered!(answered(null));
-    expect(tmux.sendKeySteps).not.toHaveBeenCalled();
+    expect(tmux.sendPlannedSteps).not.toHaveBeenCalled();
   });
 });
 

@@ -22,7 +22,8 @@ import { formatIncoming, shouldDeliver, startAgentEventStream, type ReplyParent 
 import {
   detectTmuxPane,
   notifyPane,
-  sendKeySteps,
+  sendPlannedSteps,
+  type PlanResult,
   sendKeyToPane,
   typeLineToPane,
   startMirrorLoop,
@@ -30,7 +31,7 @@ import {
 import { INSTRUCTIONS_UPDATED_NOTICE, createInstructionsWatcher } from "./agent-instructions.js";
 import { createSerialQueue } from "./pane-queue.js";
 import { createPromptGate } from "./prompt-gate.js";
-import { stepsForPrompt } from "./prompts.js";
+import { planForPrompt } from "./prompts.js";
 import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
 import {
   findConfigPath,
@@ -302,11 +303,14 @@ export function startAgentRuntime(
       // this runtime's, so the ids never match.
       if (prompt.agent !== profile.agentId) return;
       // A prompt may carry SEVERAL questions, each with its own kind, and
-      // the terminal shows them one at a time. stepsForPrompt replays them
-      // in order and returns nothing at all for a half-answered set —
-      // leftover digits would land on whichever screen came next. A
-      // free-text "Other" answer becomes a text step typed into the field.
-      const steps = stepsForPrompt(
+      // the terminal shows them one at a time. planForPrompt returns nothing
+      // at all for a half-answered set — leftover digits would land on
+      // whichever screen came next. Other text becomes a typed step.
+      // #1034: a plan, not a flat key list. Each question's keys go in only once
+      // THAT question's screen is on the pane, and the replay stops for good at
+      // the first screen that doesn't appear, so a slow re-render can no
+      // longer turn one answer set into stray 1, 2, 3 keystrokes.
+      const plan = planForPrompt(
         prompt.options_json ?? "",
         prompt.kind,
         prompt.question,
@@ -315,14 +319,22 @@ export function startAgentRuntime(
         prompt.answer_text_json ?? null,
         prompt.status === "cancelled" ? "cancel" : "submit",
       );
-      if (!steps.length) return;
+      if (!plan.length) return;
       try {
-        // Paced, not a tight loop: Claude Code's multi-select drops
-        // keystrokes that arrive while it is re-rendering a toggle.
         // Serialized with message delivery so an incoming message can't type
         // itself into the middle of this answer's key sequence.
-        await paneQueue(() => sendKeySteps(steps, pane));
-        log(`answered prompt ${prompt.id} with ${steps.length} step(s)`);
+        let result: PlanResult = { sent: 0, stoppedAt: 0 };
+        await paneQueue(async () => {
+          result = await sendPlannedSteps(plan, pane);
+        });
+        if (result.stoppedAt == null) {
+          log(`answered prompt ${prompt.id} (${plan.length} screen(s))`);
+        } else {
+          log(
+            `prompt ${prompt.id}: stopped before screen ${result.stoppedAt + 1}/${plan.length}; ` +
+              `"${(result.expected ?? "").slice(0, 60)}" never showed, so nothing more was typed`,
+          );
+        }
       } catch (err) {
         log(
           `could not answer prompt ${prompt.id} (${(err as Error).message.split("\n")[0]})`,

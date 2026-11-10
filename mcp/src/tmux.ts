@@ -477,6 +477,62 @@ export async function sendKeySteps(
   }
 }
 
+/** #1034: what `sendPlannedSteps` did. `stoppedAt` is the segment whose screen
+ *  never showed (nothing from it onward was typed); null when all were sent. */
+export interface PlanResult {
+  sent: number;
+  stoppedAt: number | null;
+  expected?: string;
+}
+
+/**
+ * #1034: replay a plan screen by screen. Before each segment, poll the pane
+ * (joined, so wrapped lines read as one) until the segment's text is showing,
+ * then send its steps. If a screen doesn't appear within `timeoutMs`, STOP:
+ * no later key is sent, so a stalled or diverged TUI is left waiting rather
+ * than fed digits meant for another screen.
+ */
+export async function sendPlannedSteps(
+  plan: import("./prompts.js").PlanSegment[],
+  target: string | undefined,
+  deps: KeySequenceDeps & {
+    typeText?: (t: string, target?: string) => Promise<void>;
+    capture?: (target?: string) => Promise<string>;
+    now?: () => number;
+    timeoutMs?: number;
+    pollMs?: number;
+  } = {},
+): Promise<PlanResult> {
+  const { screenShows } = await import("./prompts.js");
+  const capture = deps.capture ?? ((t?: string) => run("tmux", ["capture-pane", "-p", "-J", ...(t ? ["-t", t] : [])]).then((r) => r.stdout));
+  const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const now = deps.now ?? Date.now;
+  const timeoutMs = deps.timeoutMs ?? 8000;
+  const pollMs = deps.pollMs ?? 200;
+  for (let i = 0; i < plan.length; i++) {
+    const segment = plan[i]!;
+    const deadline = now() + timeoutMs;
+    let shown = false;
+    for (;;) {
+      let screen = "";
+      try {
+        screen = await capture(target);
+      } catch {
+        screen = "";
+      }
+      if (screenShows(screen, segment.expect)) {
+        shown = true;
+        break;
+      }
+      if (now() >= deadline) break;
+      await sleep(pollMs);
+    }
+    if (!shown) return { sent: i, stoppedAt: i, expected: segment.expect };
+    await sendKeySteps(segment.steps, target, deps);
+  }
+  return { sent: plan.length, stoppedAt: null };
+}
+
 /** Describe a pane for the session label, e.g. "0:0.0 (claude)". */
 export async function describePane(target?: string): Promise<string> {
   const args = ["display-message", "-p"];

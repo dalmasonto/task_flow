@@ -245,3 +245,80 @@ describe("an option-less prompt is unanswerable", () => {
     expect(keystrokesForPrompt("not json", "single", "Needs permission", "[1]", 1)).toEqual([]);
   });
 });
+
+// #1034: the replay is planned per SCREEN, and each screen is checked first.
+import { planForPrompt, screenShows, REVIEW_SCREEN_TEXT } from "./prompts.js";
+import { sendPlannedSteps } from "./tmux.js";
+
+describe("planForPrompt (#1034)", () => {
+  // Three questions: single, multi, and single with an Other text answer.
+  const three = JSON.stringify([
+    { question: "Which database?", kind: "single", options: [{ number: 1, label: "PG" }, { number: 2, label: "SQLite" }, { number: 3, label: "Type something", isOther: true }] },
+    { question: "Which features?", kind: "multi", options: [{ number: 1, label: "Auth" }, { number: 2, label: "Search" }, { number: 3, label: "Billing" }, { number: 4, label: "Type something", isOther: true }] },
+    { question: "Deploy target?", kind: "single", options: [{ number: 1, label: "VPS" }, { number: 2, label: "Fly" }, { number: 3, label: "Type something", isOther: true }] },
+  ]);
+
+  it("plans one segment per question, each gated on its own text, then the review screen", () => {
+    const plan = planForPrompt(three, "set", "Which database?", "[[1],[1,3],[3]]", null, JSON.stringify([null, null, "Hetzner"]));
+    expect(plan.map((s) => s.expect)).toEqual(["Which database?", "Which features?", "Deploy target?", REVIEW_SCREEN_TEXT]);
+    expect(plan[0]!.steps).toEqual([{ key: "1" }, { key: "Enter" }]);
+    expect(plan[1]!.steps).toEqual([{ key: "1" }, { key: "3" }, { key: "Right" }]);
+    // Other inside a SET (it used to press "3 Enter" and leave the field empty).
+    expect(plan[2]!.steps).toEqual([{ key: "Down" }, { key: "Down" }, { text: "Hetzner" }, { key: "Enter" }]);
+    expect(plan[3]!.steps).toEqual([{ key: "1" }, { key: "Enter" }]);
+  });
+
+  it("plans nothing for a half-answered set", () => {
+    expect(planForPrompt(three, "set", "Q", "[[1],[2]]", null, null)).toEqual([]);
+  });
+
+  it("a cancel still walks every question to reach the review screen, then cancels", () => {
+    const plan = planForPrompt(three, "set", "Q", "[[1],[2],[3]]", null, JSON.stringify([null, null, "x"]), "cancel");
+    expect(plan.at(-1)!.steps).toEqual([{ key: "2" }, { key: "Enter" }]);
+    expect(plan[2]!.steps).toEqual([{ key: "3" }, { key: "Enter" }]);
+  });
+});
+
+describe("screenShows", () => {
+  it("matches a question wrapped over several lines", () => {
+    expect(screenShows("│ Which data-\n│ base do\n", "Which database?")).toBe(false);
+    expect(screenShows("  Which\n   features?\n 1. Auth", "Which features?")).toBe(true);
+  });
+});
+
+describe("sendPlannedSteps (#1034)", () => {
+  const plan = [
+    { expect: "Question one", steps: [{ key: "1" }, { key: "Enter" }] },
+    { expect: "Question two", steps: [{ key: "2" }, { key: "Enter" }] },
+  ];
+
+  it("waits for each screen before typing its keys", async () => {
+    const screens = ["loading", "Question one", "Question one", "Question two"];
+    const sent: string[] = [];
+    let t = 0;
+    const result = await sendPlannedSteps(plan, "%1", {
+      capture: async () => screens.shift() ?? "Question two",
+      sendKey: async (k) => void sent.push(k),
+      sleep: async (ms) => void (t += ms),
+      now: () => t,
+      delayMs: 0,
+    });
+    expect(result).toEqual({ sent: 2, stoppedAt: null });
+    expect(sent).toEqual(["1", "Enter", "2", "Enter"]);
+  });
+
+  it("stops for good when a screen never shows: no stray digits", async () => {
+    const sent: string[] = [];
+    let t = 0;
+    const result = await sendPlannedSteps(plan, "%1", {
+      capture: async () => "Question one", // question two never renders
+      sendKey: async (k) => void sent.push(k),
+      sleep: async (ms) => void (t += ms),
+      now: () => t,
+      timeoutMs: 1000,
+      delayMs: 0,
+    });
+    expect(result.stoppedAt).toBe(1);
+    expect(sent).toEqual(["1", "Enter"]);
+  });
+});

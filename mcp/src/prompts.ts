@@ -260,3 +260,108 @@ export function stepsForPrompt(
   steps.push({ key: "1" }, { key: "Enter" });    // Submit answers
   return steps;
 }
+
+// ---------------------------------------------------------------------------
+// #1034: a SCREEN-GATED replay plan.
+//
+// `stepsForPrompt` is one flat key list, sent with fixed pauses. Nothing checked
+// that question 2's screen was actually showing before its digit went in, so a
+// slow re-render let "2 Enter" land on question 1 (or on the composer once the
+// tool had returned): the "separate 1, 2, 3 in the pane" bug. A plan is the same
+// keys split per screen, each segment tagged with text that must be ON the pane
+// before it is sent. The executor (`sendPlannedSteps`) waits for it and stops
+// typing, for good, the moment a screen doesn't match. An agent left waiting is
+// recoverable; stray digits are not.
+// ---------------------------------------------------------------------------
+
+/** One screen's worth of keys, and the text that proves that screen is up. */
+export interface PlanSegment {
+  /** Text that must be visible on the pane before `steps` are sent. */
+  expect: string;
+  steps: KeyStep[];
+}
+
+/** The review screen a set (or a lone multi-select) ends on. */
+export const REVIEW_SCREEN_TEXT = "Ready to submit your answers?";
+
+/**
+ * Keys for ONE question, including a free-text Other pick.
+ *
+ * `last` says whether this question is the only/final one; a multi-select
+ * always advances with Right (to the next question or to the review screen),
+ * except when an Other text field holds focus, where Right would only move the
+ * text cursor, so it walks Down to the Submit/Next row and presses Enter.
+ */
+function questionSteps(q: PromptQuestion, set: number[], text: string | null): KeyStep[] {
+  const other = q.options.find((o) => o.isOther);
+  const otherPicked = other != null && set.includes(other.number) && (text ?? "").length > 0;
+  if (!otherPicked) return answerKeystrokes(set, q.kind).map((key) => ({ key }));
+
+  const otherIndex = q.options.findIndex((o) => o.isOther);
+  if (q.kind !== "multi") {
+    // Single-select Other: arrow to the "Type something" row, type, Enter commits.
+    const steps: KeyStep[] = [];
+    for (let i = 0; i < otherIndex; i++) steps.push({ key: "Down" });
+    steps.push({ text: text! }, { key: "Enter" });
+    return steps;
+  }
+  // Multi-select Other: walk the list toggling picks; typing auto-checks Other
+  // (an Enter there would UN-check it, verified live 2026-07-21).
+  const steps: KeyStep[] = [];
+  for (let i = 0; i < q.options.length; i++) {
+    const opt = q.options[i]!;
+    if (opt.isOther) steps.push({ text: text! });
+    else if (set.includes(opt.number)) steps.push({ key: "Enter" });
+    if (i < q.options.length - 1) steps.push({ key: "Down" });
+  }
+  steps.push({ key: "Down" }, { key: "Enter" });
+  return steps;
+}
+
+/**
+ * The replay plan for an answered prompt, or `[]` when it must not be replayed
+ * (half-answered, unreadable, or a cancel with no review screen to cancel on).
+ */
+export function planForPrompt(
+  optionsJson: string,
+  kind: string,
+  question: string,
+  answerJson: string | null,
+  answer: number | null,
+  answerTextJson: string | null,
+  intent: PromptIntent = "submit",
+): PlanSegment[] {
+  const questions = parseQuestions(optionsJson, kind, question);
+  const sets = parseAnswerSets(answerJson, answer);
+  if (!isFullyAnswered(sets, questions.length)) return [];
+  const texts = parseAnswerTexts(answerTextJson, questions.length);
+  const hasReviewScreen = questions.length > 1 || questions.some((q) => q.kind === "multi");
+  if (intent === "cancel" && !hasReviewScreen) return [];
+
+  const plan: PlanSegment[] = questions.map((q, i) => ({
+    expect: q.question,
+    // A cancel still answers every question to REACH the review screen, but
+    // without Other text: what is typed there is about to be thrown away.
+    steps: questionSteps(q, sets[i]!, intent === "cancel" ? null : texts[i] ?? null),
+  }));
+  if (hasReviewScreen) {
+    plan.push({
+      expect: REVIEW_SCREEN_TEXT,
+      steps: (intent === "cancel" ? REVIEW_CANCEL : REVIEW_SUBMIT).map((key) => ({ key })),
+    });
+  }
+  return plan;
+}
+
+/**
+ * Whether `expect` is on `screen`. Both sides are whitespace-collapsed (the TUI
+ * wraps long questions over several lines) and only the first 48 characters of
+ * the expected text are required (a long question can be cut off on a short
+ * pane). Box-drawing and other decoration never sits inside question text.
+ */
+export function screenShows(screen: string, expect: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const want = norm(expect).slice(0, 48);
+  if (!want) return false;
+  return norm(screen).includes(want);
+}
