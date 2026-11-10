@@ -1,13 +1,11 @@
 /// The Design Surface (§9.1): toolbar, left panel, infinite canvas, right
 /// panel. The canvas is the hero — everything else stays quiet and collapsible.
 
-import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
-import { useTypers } from "@/v3/chat/use-typing"
-import { TypingLine } from "@/v3/chat/pins"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { DESIGN_CHAT_PANEL, DESIGN_SIDE_PANEL } from "@/components/panels/panel-width"
 import { ResizeHandle } from "@/components/panels/resize-handle"
 import { useSidePanels } from "@/components/panels/use-side-panels"
+import { RoomConversation } from "@/v3/chat/RoomConversation"
 
 import { sandboxTokenIsFresh, sandboxTokenSource } from "@/lib/sandbox-token"
 import {
@@ -82,11 +80,8 @@ import { TokenEditor } from "@/pages/design/token-editor"
 import { taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { onDesignRealtimeEvent } from "@/lib/design-realtime"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
-import { AgentsConversationView } from "@/components/chat/conversation-view"
 import { findDesignRoomChat, isAgentOnline } from "@/lib/live-mappers"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
-import { ActorAvatar } from "@/v3/components/actor-avatar"
-import { guessModel } from "@/v3/components/actor-models"
 import { type AgentMessage, type Project } from "@/lib/workspace-view"
 import { type AuthUser } from "@/lib/auth-api"
 import { type DesignRef } from "@/lib/design-ref"
@@ -1801,7 +1796,7 @@ function flowBoards(layout: LayoutDoc, openRoutes: string[], deviceId: string): 
 // The design chat rail
 // ---------------------------------------------------------------------------
 
-/// The left rail is the SAME `useAgentChat` + `AgentsConversationView` the
+/// The left rail is the SAME `useAgentChat` + `RoomConversation` (#1154) the
 /// Agents page and the dock use, so @mentions, attachments, prompt cards and the
 /// media lightbox all work here for free. What makes it design-specific:
 ///   1. It is pointed at THE design room — the channel marked `is_design` — and
@@ -1871,39 +1866,28 @@ function DesignChatRail({
   // message in ordinary chat can no longer reach this rail at all.
   const designChat = outletContext.selectedChat
   // #5988: "X is writing" in the design room's captions (a shared room).
-  const typers = useTypers(currentUser ? `user:${currentUser.id}` : null)
   const roomId = designChat?.liveChannelId ?? null
 
   if (!designChat) {
     return <EmptyCanvas message={noDesignRoomMessage(liveWorkspace)} />
   }
 
+  // #1154: the same conversation as the Chat page and the Database room,
+  // plus the design room's own extras (comment cards, the selection chip,
+  // page mentions).
   return (
-    <AgentsConversationView
-      {...outletContext}
-      selectedChat={designChat}
-      variant="design"
-      showDesignBadge={false}
-      // #5945: flat rows with avatars, as the design chat is drawn.
-      messageLayout="row"
-      renderAvatar={(from) => {
-        if (from === "user") return <ActorAvatar name={currentUser?.username || "You"} size="sm" />
-        const agent = liveWorkspace?.agents.find((a) => a.display_name === from)
-        return <ActorAvatar name={from} model={agent ? (guessModel(agent.runtime) ?? guessModel(agent.display_name)) : null} size="sm" />
+    <RoomConversation
+      context={{ ...outletContext, selectedChat: designChat }}
+      channelId={roomId}
+      viewProps={{
+        variant: "design",
+        showDesignBadge: false,
+        renderBody,
+        contextChip,
+        onClearContextChip,
+        pageMentions,
+        onOpenPage,
       }}
-      senderBadge={(from) => (liveWorkspace?.agents.some((a) => a.display_name === from) ? "agent" : null)}
-      renderBody={renderBody}
-      onComposerInput={TYPING_LIVE && roomId != null ? () => void sendTyping(roomId) : undefined}
-      aboveComposer={TYPING_LIVE && roomId != null ? <TypingLine text={typingText(typers.get(roomId) ?? [])} /> : null}
-      contextChip={contextChip}
-      onClearContextChip={onClearContextChip}
-      pageMentions={pageMentions}
-      onOpenPage={onOpenPage}
-      // No `readCursorMessages` override: that prop exists for a rail that
-      // RENDERS a subset of a channel but must mark the whole of it read, and
-      // there is no subset any more. The read cursor now advances over the design
-      // room's own newest message, which is what finally stops opening this page
-      // from marking the project room's ordinary chat read on the user's behalf.
     />
   )
 }

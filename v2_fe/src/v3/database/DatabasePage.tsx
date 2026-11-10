@@ -11,7 +11,6 @@ import { Background, Controls, type Edge, MarkerType, MiniMap, type Node, type N
 import "@xyflow/react/dist/style.css"
 import { DatabaseIcon, GitBranchIcon, HashIcon, HistoryIcon, MessageSquareIcon, MinusIcon, MousePointerClickIcon, PlusIcon, RefreshCwIcon, TableIcon, XIcon } from "lucide-react"
 
-import { AgentsConversationView } from "@/components/chat/conversation-view"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { Button } from "@/components/ui/button"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
@@ -37,8 +36,6 @@ import { liveId } from "@/lib/live-mappers"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/lib/workspace-view"
 
-import { ActorAvatar } from "../components/actor-avatar"
-import { guessModel } from "../components/actor-models"
 import { timeAgo } from "../lib/time"
 import { useDetail } from "../lib/use-detail"
 import { seedTaskFrom } from "../tasks/task-seed"
@@ -51,6 +48,7 @@ import { addRelation, deleteGroup, effectiveGroups, upsertGroup } from "./db-gro
 import { GroupDialog } from "./group-dialog"
 import { ModelEditor } from "./model-editor"
 import { ModelsPanel } from "./models-panel"
+import { RoomConversation } from "../chat/RoomConversation"
 
 const NODE_TYPES = { table: DbTableNode }
 const REFRESH_MS = 10_000
@@ -614,12 +612,6 @@ function DbRoom({ projectId, project, onClose }: { projectId: number; project: P
     },
   })
   const chat = outletContext.selectedChat
-  const agents = live?.agents ?? []
-  const renderAvatar = (from: string) => {
-    if (from === "user") return <ActorAvatar name={currentUser?.username || "You"} size="md" />
-    const a = agents.find((x) => x.display_name === from)
-    return <ActorAvatar name={from} model={a ? (guessModel(a.runtime) ?? guessModel(a.display_name)) : null} size="md" />
-  }
 
   return (
     <>
@@ -636,15 +628,7 @@ function DbRoom({ projectId, project, onClose }: { projectId: number; project: P
         <p className="p-4 text-sm text-muted-foreground">Opening the database room…</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <AgentsConversationView
-            {...outletContext}
-            selectedChat={chat}
-            bare
-            messageLayout="row"
-            composerStyle="v3"
-            renderAvatar={renderAvatar}
-            senderBadge={(from) => (agents.some((a) => a.display_name === from) ? "agent" : null)}
-          />
+          <RoomConversation context={{ ...outletContext, selectedChat: chat }} channelId={room.id} />
         </div>
       )}
     </>

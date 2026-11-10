@@ -4,12 +4,12 @@
 /// the conversation list, and #TSK1092: opening a chat puts the cursor in its
 /// message box.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { RoomConversation } from "./RoomConversation"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeftIcon, HashIcon, MessagesSquareIcon, PaletteIcon, PencilIcon, SearchIcon, UsersIcon } from "lucide-react"
 
 import { toast } from "sonner"
 
-import { AgentsConversationView } from "@/components/chat/conversation-view"
 import { NewConversationPanel, type ConversationCandidate } from "@/components/chat/new-conversation"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { Button } from "@/components/ui/button"
@@ -20,33 +20,22 @@ import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { chatIdToSlug, findPublicRoomChat, isAgentOnline, liveId, mapLiveTerminalSessions, slugToChatId, upsertById } from "@/lib/live-mappers"
 import { createTaskflowChannel, setChannelArchived } from "@/lib/taskflow-api"
-import { subscribeThreadEvents } from "@/lib/thread-bus"
-import { fetchThreadSummaries } from "@/lib/threads-api"
-import type { AgentMessage, Project } from "@/lib/workspace-view"
+import type { Project } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
 import { timeAgo } from "../lib/time"
-import { useLoad } from "../lib/use-load"
 import { V3Shell } from "../shell/V3Shell"
 import { seedTaskFrom } from "../tasks/task-seed"
-import { useMayDrive } from "../lib/use-may-drive"
 import { useWorkspace } from "../workspace"
 import { byRecent, chatRow, filterChats, followLine, listTime, rowBadge, withMentions, type ChatFilter, type ChatRow } from "./chat-logic"
 import { useChatSummary } from "./use-chat-summary"
-import { useRoomExtras } from "./use-room-extras"
-import { reactionIds } from "./pins-logic"
-import { DeliveredLine, MessageExtraActions, PinBar, PinnedMark, ReactionRow, ToolsLine, TypingLine } from "./pins"
-import { useDeliveries } from "./use-deliveries"
-import { useMessageTools } from "./use-message-tools"
 import { useTypers } from "./use-typing"
-import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
+import { typingText } from "@/lib/typing"
 import type { FollowedThread } from "@/lib/chat-summary-api"
 import { focusComposerIn } from "./focus"
 import { type Actor } from "./ActorDetails"
-import { ActorMentionContext } from "@/lib/markdown-contexts"
-import { mentionsUser } from "./chat-logic"
 import { ThreadPanel } from "./ThreadPanel"
 import { channelIdOf } from "./thread-logic"
 import { useDetail } from "../lib/use-detail"
@@ -295,7 +284,6 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
   const [params, setParams] = useSearchParams()
   const isBelowLg = useIsBelowLg()
   const { live, currentUser, applyLiveUpdate, reloadLive, setChatSurfaceMounted } = useWorkspace()
-  const mayDrive = useMayDrive()
   const pane = useRef<HTMLDivElement>(null)
 
   // Tell App the chat slices are needed while this page is up.
@@ -443,14 +431,6 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
     next.delete("thread")
     setParams(next, { replace: true })
   }
-  const rootIds = (selectedChat?.messages ?? []).filter((m) => m.status === "posted" && !m.threadRoot).map((m) => Number(m.id)).filter((n) => Number.isInteger(n) && n > 0)
-  const summaries = useLoad(channelId && rootIds.length ? `threads|${channelId}|${rootIds.join(",")}` : null, (signal) => fetchThreadSummaries(channelId!, rootIds.slice(-200), signal))
-  const reloadSummaries = summaries.reload
-  useEffect(() => subscribeThreadEvents((e) => (e.kind === "delete" || (e.message.thread_root != null && e.message.channel === channelId) ? reloadSummaries() : undefined)), [channelId, reloadSummaries])
-  const threadSummaries = useMemo(
-    () => Object.fromEntries(Object.entries(summaries.data ?? {}).map(([k, v]) => [k, { replyCount: v.reply_count, lastReplyAt: v.last_reply_at }])),
-    [summaries.data],
-  )
   const threadOpen = !!(threadParam && channelId)
 
   // #5918: the room header, details panel and flat message rows of chat.html.
@@ -513,18 +493,6 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
     const seen = new Set<number>()
     return (live ? mapLiveTerminalSessions(live, now) : []).filter((t) => (seen.has(t.agentId) ? false : (seen.add(t.agentId), true)))
   }, [live, now])
-  const agentNames = useMemo(() => new Map((live?.agents ?? []).map((a) => [a.display_name, a])), [live?.agents])
-  const roleByName = useMemo(() => new Map((live?.members ?? []).filter((m) => m.status === "active").map((m) => [m.display_name, m.role])), [live?.members])
-  const renderAvatar = (from: string) => {
-    if (from === "user") return <ActorAvatar name={currentUser?.username || "You"} size="md" />
-    const a = agentNames.get(from)
-    return <ActorAvatar name={from} model={a ? (guessModel(a.runtime) ?? guessModel(a.display_name)) : null} size="md" />
-  }
-  const senderBadge = (from: string) => {
-    if (agentNames.has(from)) return "agent"
-    const role = roleByName.get(from)
-    return role === "owner" ? "Owner" : role === "admin" ? "Admin" : null
-  }
   const unarchive = async () => {
     if (!channel) return
     try {
@@ -561,57 +529,7 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
     // eslint-disable-next-line react-hooks/exhaustive-deps -- jumpTo/params are read fresh when it fires
   }, [msgParam, loadedCount, selectedId])
 
-  // #5949: pins and reactions (hidden on a server without them).
-  const extras = useRoomExtras(channelId, reactionIds(selectedChat?.messages ?? []))
-  const [pickerFor, setPickerFor] = useState<string | null>(null)
-  const roomArchived = !!channel?.archived
-  const renderActions =
-    extras.supported && !roomArchived
-      ? (m: AgentMessage) => {
-          const id = Number(m.id)
-          const pinned = extras.pinned.has(id)
-          return (
-            <MessageExtraActions
-              pinned={pinned}
-              // Only a room's own messages can be pinned, not thread replies.
-              canPin={!m.threadRoot}
-              onReact={() => setPickerFor(m.id)}
-              onPin={() => void extras.togglePin(id, !pinned)}
-            />
-          )
-        }
-      : undefined
-  // #5988 item 8: what each agent message's sender ran while writing it.
-  const agentMessageIds = (selectedChat?.messages ?? []).filter((m) => m.status === "posted" && agentNames.has(m.from)).map((m) => Number(m.id)).filter((n) => Number.isInteger(n) && n > 0).slice(-100)
-  const tools = useMessageTools(channelId, agentMessageIds)
-  // #5988 item 7: whose terminals each message was typed into.
-  const posted = (selectedChat?.messages ?? [])
-    .filter((m) => m.status === "posted")
-    .map((m) => ({ id: Number(m.id), createdAt: m.createdAt ?? null }))
-    .filter((m) => Number.isInteger(m.id) && m.id > 0)
-    .slice(-100)
-  const deliveries = useDeliveries(channelId, posted)
-  const renderFooter = (m: AgentMessage) => (
-    <>
-      <ToolsLine tools={tools[m.id]} />
-      {extras.supported ? (
-        <ReactionRow
-          reactions={extras.reactions[m.id] ?? []}
-          picking={pickerFor === m.id}
-          readOnly={roomArchived}
-          onToggle={(emoji) => void extras.react(Number(m.id), emoji)}
-          onPick={() => setPickerFor(m.id)}
-          onClosePicker={() => setPickerFor(null)}
-        />
-      ) : null}
-      <DeliveredLine deliveries={deliveries[m.id]} />
-    </>
-  )
-  // #5988: "X is writing". Shared rooms only: the server drops private
-  // rooms' events (they'd tell the whole project), so don't send them.
   const typers = useTypers(currentUser ? `user:${currentUser.id}` : null)
-  const signalTyping = TYPING_LIVE && channel != null && !channel.archived && channel.kind !== "direct" && channel.kind !== "group"
-  const renderMeta = (m: AgentMessage) => (extras.pinned.has(Number(m.id)) ? <PinnedMark /> : null)
   const panelOpen = !!channel && (isWide ? panelPref && !threadOpen : panelSheet)
   const panel =
     channel && members && powers ? (
@@ -711,27 +629,15 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
                     ) : null}
                   </div>
                 ) : null}
-                {extras.pins?.length ? <PinBar key={channelId ?? 0} pins={extras.pins} onJump={jumpTo} /> : null}
-                <ActorMentionContext.Provider value={showActor}>
-                <AgentsConversationView
-                  {...outletContext}
-                  messageHighlight={(m) => (currentUser && m.from !== "user" && mentionsUser(m.body, currentUser.id) ? "me" : m.priority === "blocking" ? "urgent" : null)}
-                  bare
+                <RoomConversation
+                  context={outletContext}
+                  channelId={channelId}
                   readOnly={!!channel?.archived}
-                  onComposerInput={signalTyping ? () => void sendTyping(channel.id) : undefined}
-                  aboveComposer={TYPING_LIVE && channelId != null ? <TypingLine text={typingText(typers.get(channelId) ?? [])} /> : null}
-                  messageLayout="row"
-                  composerStyle="v3"
-                  renderAvatar={renderAvatar}
-                  senderBadge={senderBadge}
-                  renderActions={renderActions}
-                  renderFooter={renderFooter}
-                  renderMeta={renderMeta}
-                  onOpenThread={channelId ? openThread : undefined}
-                  threadSummaries={threadSummaries}
-                  mayDrive={(id) => mayDrive(id) !== false}
+                  canSignalTyping={!!channel && channel.kind !== "direct" && channel.kind !== "group"}
+                  onOpenThread={openThread}
+                  onShowActor={showActor}
+                  onJump={jumpTo}
                 />
-                </ActorMentionContext.Provider>
               </div>
             ) : (
               <Empty className="m-auto max-w-sm">
