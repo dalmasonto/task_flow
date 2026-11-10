@@ -14,13 +14,17 @@ import { fetchRoomSummaries, type RoomSummary } from "@/lib/chat-summary-api"
 import { liveId } from "@/lib/live-mappers"
 
 import { listDecisions } from "../decisions/decisions-api"
-import { fetchInbox } from "../inbox/inbox-api"
+import { fetchInbox, type InboxItem } from "../inbox/inbox-api"
 import { useWorkspace } from "../workspace"
 import { chatBadge, liveAgents, sidebarDms, sidebarRooms } from "./sidebar-logic"
 
 const DEBOUNCE_MS = 600
 
-type Remote = { project: number; summary: RoomSummary[] | null; inbox: number | null; decisions: number | null }
+/// #1034: an agent paused on a question for THIS person (the inbox's pending
+/// prompt items), for the shell's "waiting on you" banner.
+export type WaitingPrompt = Extract<InboxItem, { prompt: number }> & { kind: "prompt" }
+
+type Remote = { project: number; summary: RoomSummary[] | null; inbox: number | null; decisions: number | null; waiting: WaitingPrompt[] | null }
 
 export function useSidebarData() {
   const { live, currentUser, projectTasks, activeProject } = useWorkspace()
@@ -36,7 +40,11 @@ export function useSidebarData() {
       .filter((c) => c.member_kind === "user" && c.member_user === currentUser?.id)
       .map((c) => `${c.channel}:${c.last_read_message ?? 0}`)
       .join(",") ?? ""
-  const signal = `${lastMessage}|${myCursors}|${pathname}`
+  // #1034: a prompt raised or answered arrives on App's one stream (the row is
+  // upserted even when the chat slice isn't loaded), so it moves the signal
+  // and the banner follows within the debounce.
+  const promptSig = live?.agentPrompts.map((p) => `${p.id}:${p.status}`).join(",") ?? ""
+  const signal = `${lastMessage}|${myCursors}|${pathname}|${promptSig}`
 
   useEffect(() => {
     if (project == null) return
@@ -46,13 +54,13 @@ export function useSidebarData() {
       // good value of its own, rather than flashing the badge away).
       void Promise.all([
         fetchRoomSummaries(project, ctl.signal).catch(() => undefined),
-        fetchInbox("needs_you", project, ctl.signal)
-          .then((p) => p.counts.needs_you)
-          .catch(() => undefined),
+        fetchInbox("needs_you", project, ctl.signal).catch(() => undefined),
         listDecisions(project, ctl.signal)
           .then((ds) => ds.filter((d) => d.status === "open").length)
           .catch(() => undefined),
-      ]).then(([summary, inbox, decisions]) => {
+      ]).then(([summary, page, decisions]) => {
+        const inbox = page?.counts.needs_you
+        const waiting = page?.items.filter((i): i is WaitingPrompt => i.kind === "prompt" && i.can_answer !== false)
         if (ctl.signal.aborted) return
         setRemote((cur) => {
           const same = cur?.project === project ? cur : null
@@ -61,6 +69,7 @@ export function useSidebarData() {
             summary: summary === undefined ? (same?.summary ?? null) : summary,
             inbox: inbox === undefined ? (same?.inbox ?? null) : inbox,
             decisions: decisions === undefined ? (same?.decisions ?? null) : decisions,
+            waiting: waiting === undefined ? (same?.waiting ?? null) : waiting,
           }
         })
       })
@@ -78,5 +87,5 @@ export function useSidebarData() {
   const agents = useMemo(() => liveAgents(live, projectTasks, now), [live, projectTasks, now])
   const chat = useMemo(() => chatBadge([...rooms, ...dms]), [rooms, dms])
 
-  return { rooms, dms, agents, chat, inbox: current?.inbox ?? 0, decisions: current?.decisions ?? 0 }
+  return { rooms, dms, agents, chat, inbox: current?.inbox ?? 0, decisions: current?.decisions ?? 0, waiting: current?.waiting ?? [] }
 }

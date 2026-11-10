@@ -50,6 +50,7 @@ import { ProjectSwitcher } from "./ProjectSwitcher"
 import { badgeText, type LiveAgent, type SidebarChat } from "./sidebar-logic"
 import { useSidebarData } from "./use-sidebar-data"
 import { OfflineBanner } from "../system/OfflineBanner"
+import { WaitingBanner } from "./WaitingBanner"
 
 /// tf-shell's group labels: sentence case, muted, not the primitive's small caps.
 const LABEL = "text-xs font-medium normal-case text-muted-foreground"
@@ -449,6 +450,7 @@ export function V3Shell({ title, actions, flush, children }: { title: ReactNode;
           </div>
         </header>
         <OfflineBanner />
+        <WaitingBanner waiting={side.waiting} />
         <main className={cn("min-h-0 flex-1 overflow-y-auto", !flush && "p-4 lg:p-6")}>{children}</main>
       </SidebarInset>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
