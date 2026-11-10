@@ -364,12 +364,28 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per ?agent= value; the ref guards repeats
   }, [agentParam, live?.agentChannelsLoaded, directChats])
 
-  // Desktop with no conversation chosen: open the project room, as v2 does.
+  // ?channel=<id>[&msg=<id>] (inbox items, links that only know the channel):
+  // open whichever room or DM that channel is, keeping ?msg= for the jump.
+  const channelParam = Number(params.get("channel")) || null
   useEffect(() => {
-    if (slug || isBelowLg || agentParam || !live?.agentChannelsLoaded) return
+    if (!channelParam || !live?.agentChannelsLoaded) return
+    const chat = [...channelChats, ...directChats].find((c) => c.liveChannelId === channelParam)
+    if (!chat) return
+    const next = new URLSearchParams(params)
+    next.delete("channel")
+    const q = next.toString()
+    navigate(`/v3/chat/${chatIdToSlug(chat.id)}${q ? `?${q}` : ""}`, { replace: true })
+  }, [channelParam, live?.agentChannelsLoaded, channelChats, directChats, params, navigate])
+
+  // Desktop with no conversation chosen: open the project room, as v2 does.
+  // The query string goes along: ?new=room from the sidebar's + must survive
+  // this redirect, or the new-conversation panel opens and closes at once.
+  useEffect(() => {
+    if (slug || isBelowLg || agentParam || channelParam || !live?.agentChannelsLoaded) return
     const first = findPublicRoomChat(live, currentUser) ?? directChats[0]
-    if (first) navigate(`/v3/chat/${chatIdToSlug(first.id)}`, { replace: true })
-  }, [slug, isBelowLg, agentParam, live, currentUser, directChats, navigate])
+    const q = params.toString()
+    if (first) navigate(`/v3/chat/${chatIdToSlug(first.id)}${q ? `?${q}` : ""}`, { replace: true })
+  }, [slug, isBelowLg, agentParam, channelParam, live, currentUser, directChats, navigate, params])
 
   // #TSK1092: a newly opened conversation puts the cursor in its message box.
   const selectedId = selectedChat?.id ?? null
@@ -481,6 +497,22 @@ function ChatWorkspace({ project, onTitle }: { project: Project; onTitle: (title
     setTimeout(() => el.classList.remove("bg-accent"), 1600)
     return true
   }
+  // ?msg=<id> (inbox items): scroll to that message once it's on screen, then
+  // drop the param. Re-tried as messages arrive, so a slow load still lands.
+  const msgParam = Number(params.get("msg")) || null
+  const loadedCount = outletContext.selectedChat?.messages.length ?? 0
+  useEffect(() => {
+    if (!msgParam || !pane.current?.querySelector(`[data-message-id="${msgParam}"]`)) return
+    const raf = requestAnimationFrame(() => {
+      jumpTo(msgParam)
+      const next = new URLSearchParams(params)
+      next.delete("msg")
+      setParams(next, { replace: true })
+    })
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- jumpTo/params are read fresh when it fires
+  }, [msgParam, loadedCount, selectedId])
+
   // #5949: pins and reactions (hidden on a server without them).
   const extras = useRoomExtras(channelId, reactionIds(selectedChat?.messages ?? []))
   const [pickerFor, setPickerFor] = useState<string | null>(null)

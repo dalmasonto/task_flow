@@ -5,8 +5,8 @@
 /// its own endpoint and refreshes on focus and every 30 seconds rather than
 /// riding the active project's stream.
 import { useCallback, useEffect, useState } from "react"
-import { Link } from "react-router-dom"
-import { CalendarClockIcon, CheckCheckIcon, HelpCircleIcon, InboxIcon, MessageSquareIcon, ScaleIcon, ShieldCheckIcon } from "lucide-react"
+import { useNavigate } from "react-router-dom"
+import { ArrowRightIcon, CalendarClockIcon, CheckCheckIcon, HelpCircleIcon, InboxIcon, MessageSquareIcon, ScaleIcon, ShieldCheckIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import type { TaskflowWorkspace } from "@/lib/taskflow-api"
@@ -50,6 +50,29 @@ function Row({ item, icon, title, meta, children }: { item: InboxItem; icon: Rea
     </li>
   )
 }
+
+/// Where an inbox item opens. Chat items go through `?channel=&msg=` so the
+/// chat page resolves the right room or DM (a DM's slug isn't `channel-N`) and
+/// scrolls to the message; an item from another project switches to it first.
+function Go({ project, to, children, variant = "default" }: { project: number; to: string; children: React.ReactNode; variant?: "default" | "outline" }) {
+  const { live, chooseProject } = useWorkspace()
+  const navigate = useNavigate()
+  return (
+    <Button
+      size="sm"
+      variant={variant}
+      onClick={() => {
+        if (live?.project.id !== project) chooseProject(String(project))
+        navigate(to)
+      }}
+    >
+      {children}
+      <ArrowRightIcon />
+    </Button>
+  )
+}
+
+const chatHref = (channel: number, message: number) => `/v3/chat?channel=${channel}&msg=${message}`
 
 function Glyph({ children }: { children: React.ReactNode }) {
   return <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground [&_svg]:size-4">{children}</span>
@@ -123,6 +146,11 @@ export function InboxPage() {
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">It asked again, or its terminal answered first, so this one was withdrawn. Nothing to answer.</p>
             )}
+            <div className="mt-2">
+              <Go project={i.project} to={`/v3/agents/${i.agent}`} variant="outline">
+                Open {name}
+              </Go>
+            </div>
           </Row>
         )
       }
@@ -131,6 +159,11 @@ export function InboxPage() {
           <Row key={`d${i.decision}`} item={i} icon={<Glyph><ScaleIcon /></Glyph>} title={`${i.asked_by_label} asks for a ruling`} meta={when}>
             <p className="mt-1 text-sm">{i.question}</p>
             <p className="mt-1 font-mono text-xs text-muted-foreground">{i.key}</p>
+            <div className="mt-2">
+              <Go project={i.project} to={`/v3/decisions?key=${encodeURIComponent(i.key)}`}>
+                Rule on it
+              </Go>
+            </div>
           </Row>
         )
       case "review_request":
@@ -153,6 +186,11 @@ export function InboxPage() {
         return (
           <Row key={`u${i.daily_update}`} item={i} icon={<Glyph><CalendarClockIcon /></Glyph>} title={`Daily update for ${i.date} is ready to review`} meta={`${i.drafted_by_label}${when ? `, ${when}` : ""}`}>
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{i.excerpt}</p>
+            <div className="mt-2">
+              <Go project={i.project} to={`/v3/daily-update/${i.date}`}>
+                Review it
+              </Go>
+            </div>
           </Row>
         )
       case "question":
@@ -165,18 +203,22 @@ export function InboxPage() {
             meta={when}
           >
             <p className="mt-1 line-clamp-2 text-sm">{i.snippet}</p>
-            <Button size="sm" className="mt-2" render={<Link to={`/v3/chat/channel-${i.channel}`} />} nativeButton={false}>
-              Answer in chat
-            </Button>
+            <div className="mt-2">
+              <Go project={i.project} to={chatHref(i.channel, i.message)}>
+                Answer in chat
+              </Go>
+            </div>
           </Row>
         )
       case "mention":
         return (
           <Row key={`m${i.message}`} item={i} icon={<Glyph><MessageSquareIcon /></Glyph>} title={`${i.sender_label} mentioned you`} meta={when}>
             <p className="mt-1 line-clamp-2 text-sm">{i.snippet}</p>
-            <Link to={`/v3/chat/channel-${i.channel}`} className="mt-1 inline-block text-sm underline-offset-2 hover:underline">
-              Reply in chat
-            </Link>
+            <div className="mt-2">
+              <Go project={i.project} to={chatHref(i.channel, i.message)} variant="outline">
+                Open in chat
+              </Go>
+            </div>
           </Row>
         )
     }
@@ -202,6 +244,9 @@ export function InboxPage() {
       }
     >
       <div className="mx-auto max-w-3xl space-y-4">
+        <p className="text-sm text-muted-foreground">
+          What's waiting on you, across your projects: agents asking permission, questions and decisions for you, review requests, daily updates to approve, and mentions. Each one opens where you act on it.
+        </p>
         <div className="flex flex-wrap items-center gap-3">
           <div role="tablist" aria-label="Show" className="inline-flex rounded-md border border-border p-0.5 text-sm">
             {TABS.map((t) => {

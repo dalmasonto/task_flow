@@ -1,7 +1,7 @@
 /// The v3 board (design: board.html, board-filters, board--empty,
 /// board--loading). The store operations are v2's tested ones, through the
 /// workspace: the optimistic move + write, per-column paging, server totals.
-import { useState, type DragEvent } from "react"
+import { useState, type DragEvent, type ReactNode } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { ChevronDownIcon, ColumnsIcon, EyeIcon, EyeOffIcon, KanbanIcon, ListIcon, PlusIcon, SearchIcon, TimerIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 
@@ -176,7 +176,7 @@ function SavedViews({ filter, onFilter, count }: { filter: BoardFilter; onFilter
   // covers them (their columns are small; Done, the big one, isn't in any).
   const { board } = useWorkspace()
   return (
-    <div role="tablist" aria-label="Saved views" className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-4 pt-2 lg:px-6">
+    <div role="tablist" aria-label="Saved views" className="flex shrink-0 gap-1 overflow-x-auto overflow-y-hidden border-b border-border px-4 pt-2 [scrollbar-width:none] lg:px-6">
       {VIEWS.map((v) => (
         <button
           key={v.id}
@@ -206,7 +206,11 @@ export function BoardToolbar({
   repos,
   shown,
   count,
+  beside,
 }: {
+  /// Next to the Board/List switch (the board's "Show hidden" toggle), so it
+  /// never widens the columns' scroller.
+  beside?: ReactNode
   view: "board" | "list"
   filter: BoardFilter
   onFilter: (f: BoardFilter) => void
@@ -219,6 +223,7 @@ export function BoardToolbar({
       <SavedViews filter={filter} onFilter={onFilter} count={count} />
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 lg:px-6">
         <ViewTabs active={view} />
+        {beside}
         <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
         <FilterChips filter={filter} onChange={onFilter} repos={repos} shown={shown} />
       </div>
@@ -445,14 +450,6 @@ export function BoardPage() {
                 </section>
               )
             })}
-          {cols.columns.some((c) => c.hidden) ? (
-            <div className="flex shrink-0 items-start pt-0.5">
-              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setShowHidden((v) => !v)}>
-                {showHidden ? <EyeOffIcon /> : <EyeIcon />}
-                {showHidden ? "Hide hidden columns" : `Show hidden (${cols.columns.filter((c) => c.hidden).map((c) => c.label).join(", ")})`}
-              </Button>
-            </div>
-          ) : null}
         </div>
       </div>
     )
@@ -462,7 +459,29 @@ export function BoardPage() {
     <V3Shell title="Board" flush actions={activeProject ? <NewTaskButton /> : null}>
       <div className="flex h-full min-h-0 flex-col">
         {activeProject && all.length > 0 ? (
-          <BoardToolbar view="board" filter={filter} onFilter={setFilter} repos={repos} shown={shown.length} count={count} />
+          <BoardToolbar
+            view="board"
+            filter={filter}
+            onFilter={setFilter}
+            repos={repos}
+            shown={shown.length}
+            count={count}
+            beside={
+              cols.columns.some((c) => c.hidden) ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  aria-pressed={showHidden}
+                  title={`Hidden columns: ${cols.columns.filter((c) => c.hidden).map((c) => c.label).join(", ")}`}
+                  onClick={() => setShowHidden((v) => !v)}
+                >
+                  {showHidden ? <EyeOffIcon /> : <EyeIcon />}
+                  {showHidden ? "Hide hidden" : `Show hidden (${cols.columns.filter((c) => c.hidden).length})`}
+                </Button>
+              ) : null
+            }
+          />
         ) : null}
         {board.syncError ? (
           <Alert variant="destructive" className="mx-4 mt-3 w-auto rounded-xl lg:mx-6">

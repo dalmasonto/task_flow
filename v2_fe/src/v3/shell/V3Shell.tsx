@@ -21,7 +21,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -107,19 +106,21 @@ function BoardViews() {
 function Section({ title, count, action, children }: { title: string; count?: string; action?: { label: string; to: string }; children: ReactNode }) {
   return (
     <Collapsible defaultOpen className="group/section group-data-[collapsible=icon]:hidden">
-      <SidebarGroup>
-        <SidebarGroupLabel render={<CollapsibleTrigger />} className={cn(LABEL, "gap-1")}>
-          <ChevronRightIcon className="transition-transform group-data-[open]/section:rotate-90" />
-          {title}
-          {count ? <span className="ml-1 tabular-nums group-data-[open]/section:hidden">{count}</span> : null}
-        </SidebarGroupLabel>
-        {action ? (
-          <SidebarGroupAction title={action.label} aria-label={action.label} render={<Link to={action.to} />}>
-            <PlusIcon />
-          </SidebarGroupAction>
-        ) : null}
+      <SidebarGroup className="relative pt-3 pb-1">
+        <div className="flex h-8 items-center pr-1">
+          <SidebarGroupLabel render={<CollapsibleTrigger />} className={cn(LABEL, "h-8 flex-1 gap-1")}>
+            <ChevronRightIcon className="transition-transform group-data-[open]/section:rotate-90" />
+            {title}
+            {count ? <span className="ml-1 tabular-nums group-data-[open]/section:hidden">{count}</span> : null}
+          </SidebarGroupLabel>
+          {action ? (
+            <Button variant="ghost" size="icon-sm" className="size-7 text-muted-foreground" title={action.label} aria-label={action.label} nativeButton={false} render={<Link to={action.to} />}>
+              <PlusIcon />
+            </Button>
+          ) : null}
+        </div>
         <CollapsibleContent>
-          <SidebarGroupContent>{children}</SidebarGroupContent>
+          <SidebarGroupContent className="pt-1">{children}</SidebarGroupContent>
         </CollapsibleContent>
       </SidebarGroup>
     </Collapsible>
@@ -179,6 +180,8 @@ function ChatBadge({ row }: { row: SidebarChat }) {
 }
 
 function ChatSection({ title, rows, pathname, action, avatars }: { title: string; rows: SidebarChat[]; pathname: string; action: { label: string; to: string }; avatars?: boolean }) {
+  // Already in a conversation: open the panel there instead of jumping rooms.
+  if (pathname.startsWith("/v3/chat/")) action = { ...action, to: `${pathname}${action.to.slice(action.to.indexOf("?"))}` }
   if (!rows.length) return null
   const unread = rows.filter((r) => r.unread > 0).length
   // Unread first so nothing waiting falls below the fold, then the list's order.
