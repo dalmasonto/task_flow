@@ -1616,7 +1616,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       model: z
         .object({
           name: z.string(),
-          group: z.string().optional().describe("A label that clusters and colours the diagram (an app or plugin)."),
+          group: z.string().optional().describe("The slug of the group this model belongs to (db_schema lists `groups`: slug, name, colour). Prefer an existing group; a new slug shows as its own group until a person names and colours it on the Database page."),
           fields: z.array(dbFieldSchema),
           samples: z.array(z.record(z.string(), z.unknown())).optional(),
         })

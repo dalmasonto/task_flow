@@ -6,6 +6,7 @@ import { useState } from "react"
 import { PlusIcon, Trash2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { DbModel } from "@/lib/db-api"
 
 import { parseCell } from "./db-cells"
@@ -48,17 +49,22 @@ export function DataTab({
                 {model.fields.map((f) => (
                   <td key={f.name} className="px-1 py-0.5">
                     {f.type === "enum" ? (
-                      <select
-                        aria-label={`${f.name}, row ${r + 1}`}
-                        className="h-8 w-full rounded border-transparent bg-transparent px-2 font-mono text-xs hover:border-border focus:border-ring"
-                        value={cellText(row[f.name])}
-                        onChange={(e) => setRows(rows.map((x, i) => (i === r ? { ...x, [f.name]: e.target.value } : x)))}
+                      <Select
+                        items={Object.fromEntries((f.values ?? []).map((v) => [v, v]))}
+                        value={cellText(row[f.name]) || null}
+                        onValueChange={(v) => setRows(rows.map((x, i) => (i === r ? { ...x, [f.name]: (v as string | null) ?? "" } : x)))}
                       >
-                        <option value="" />
-                        {(f.values ?? []).map((v) => (
-                          <option key={v}>{v}</option>
-                        ))}
-                      </select>
+                        <SelectTrigger aria-label={`${f.name}, row ${r + 1}`} className="h-8 w-full min-w-28 border-transparent bg-transparent font-mono text-xs shadow-none hover:border-border">
+                          <SelectValue placeholder="—" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(f.values ?? []).map((v) => (
+                            <SelectItem key={v} value={v} className="font-mono text-xs">
+                              {v}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     ) : (
                       <input
                         aria-label={`${f.name}, row ${r + 1}`}

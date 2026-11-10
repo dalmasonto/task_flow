@@ -4,7 +4,10 @@
 //! silently undoing a human's edit.
 //!
 //! The document is one JSON value per project:
-//! `{ "models": [ { "name", "group", "fields": [...], "samples": [...] } ] }`.
+//! `{ "groups": [ { "slug", "name", "color" } ], "models": [ { "name", "group", "fields": [...], "samples": [...] } ] }`.
+//! A model's `group` is a group's slug. Groups are optional: a model may name a
+//! group that has no entry (an agent's free label), and it is drawn with a
+//! default colour until someone gives it one.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,9 +22,34 @@ pub const FIELD_TYPES: &[&str] = &[
 pub const MAX_MODELS: usize = 200;
 pub const MAX_FIELDS: usize = 120;
 pub const MAX_SAMPLES: usize = 50;
+pub const MAX_GROUPS: usize = 50;
+
+/// The colours a group may take: theme tokens, so groups follow light/dark.
+pub const GROUP_COLORS: &[&str] = &[
+    "chart-1", "chart-2", "chart-3", "chart-4", "chart-5", "running", "review", "blocked", "failed", "done", "idle",
+];
+
+/// A named, coloured group of models (the Database page's sections).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Group {
+    /// What models put in `group`: lowercase letters, digits and dashes.
+    pub slug: String,
+    pub name: String,
+    /// One of `GROUP_COLORS`.
+    pub color: String,
+}
+
+fn is_slug(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_lowercase() || c.is_ascii_digit())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && s.len() <= 40
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SchemaDoc {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<Group>,
     #[serde(default)]
     pub models: Vec<Model>,
 }
@@ -117,6 +145,25 @@ pub fn validate(doc: &SchemaDoc) -> Vec<String> {
     let mut errors = Vec::new();
     if doc.models.len() > MAX_MODELS {
         errors.push(format!("too many models ({} > {MAX_MODELS})", doc.models.len()));
+    }
+    if doc.groups.len() > MAX_GROUPS {
+        errors.push(format!("too many groups ({} > {MAX_GROUPS})", doc.groups.len()));
+    }
+    let mut slugs = BTreeSet::new();
+    for g in &doc.groups {
+        if !is_slug(&g.slug) {
+            errors.push(format!("group `{}`: the slug must be lowercase letters, digits and dashes", g.slug));
+        }
+        if !slugs.insert(g.slug.as_str()) {
+            errors.push(format!("group `{}` appears twice", g.slug));
+        }
+        let name = g.name.trim();
+        if name.is_empty() || name.chars().count() > 60 {
+            errors.push(format!("group `{}`: the name must be 1 to 60 characters", g.slug));
+        }
+        if !GROUP_COLORS.contains(&g.color.as_str()) {
+            errors.push(format!("group `{}`: unknown colour `{}` (one of {})", g.slug, g.color, GROUP_COLORS.join(", ")));
+        }
     }
     let names: BTreeSet<&str> = doc.models.iter().map(|m| m.name.as_str()).collect();
     let mut seen = BTreeSet::new();
@@ -291,6 +338,7 @@ mod tests {
 
     fn doc() -> SchemaDoc {
         SchemaDoc {
+            groups: vec![],
             models: vec![
                 Model {
                     name: "Agent".into(),
@@ -405,6 +453,31 @@ mod tests {
     #[test]
     fn referrers_lists_the_models_pointing_at_one() {
         assert_eq!(referrers(&doc(), "Project"), vec![("Agent", "project")]);
+    }
+
+    #[test]
+    fn groups_are_checked_and_survive_a_round_trip() {
+        let mut d = doc();
+        d.groups = vec![
+            Group { slug: "blog".into(), name: "Blog".into(), color: "chart-2".into() },
+            Group { slug: "Bad Slug".into(), name: "".into(), color: "#ff0000".into() },
+            Group { slug: "blog".into(), name: "Again".into(), color: "chart-1".into() },
+        ];
+        let errors = validate(&d);
+        assert!(errors.iter().any(|e| e.contains("`Bad Slug`: the slug")), "{errors:?}");
+        assert!(errors.iter().any(|e| e.contains("`Bad Slug`: the name")), "{errors:?}");
+        assert!(errors.iter().any(|e| e.contains("unknown colour `#ff0000`")), "{errors:?}");
+        assert!(errors.iter().any(|e| e.contains("group `blog` appears twice")), "{errors:?}");
+        d.groups.truncate(1);
+        assert!(validate(&d).is_empty());
+        let wire = serde_json::to_value(&d).unwrap();
+        assert_eq!(wire["groups"][0]["color"], "chart-2");
+        let back: SchemaDoc = serde_json::from_value(wire).unwrap();
+        assert_eq!(back.groups, d.groups);
+        // An agent's model write keeps the groups.
+        let model = Model { name: "Note".into(), group: Some("blog".into()), fields: vec![field("id", "i64")], ..Default::default() };
+        let next = apply_agent_model(&d, model, &Author::agent(1, "a"), false).unwrap();
+        assert_eq!(next.groups, d.groups);
     }
 
     #[test]

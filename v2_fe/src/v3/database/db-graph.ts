@@ -4,14 +4,7 @@
 
 import type { DbField, DbModel, DbSchemaDoc } from "@/lib/db-api"
 
-/// Five distinct hues, cycled by group — the same chart tokens the mocks use.
-export const GROUP_TONES = [
-  { dot: "bg-chart-1", line: "var(--chart-1)" },
-  { dot: "bg-chart-2", line: "var(--chart-2)" },
-  { dot: "bg-chart-3", line: "var(--chart-3)" },
-  { dot: "bg-chart-4", line: "var(--chart-4)" },
-  { dot: "bg-chart-5", line: "var(--chart-5)" },
-] as const
+import { groupTone } from "./db-groups"
 
 /// Groups in first-seen order; a model without one is in "" (shown as "Other").
 export function groupsOf(doc: DbSchemaDoc): string[] {
@@ -23,9 +16,9 @@ export function groupsOf(doc: DbSchemaDoc): string[] {
   return seen
 }
 
+/// A group's dot class and line colour: its stored colour (db-groups).
 export function toneFor(doc: DbSchemaDoc, group: string | undefined) {
-  const i = groupsOf(doc).indexOf(group ?? "")
-  return GROUP_TONES[(i < 0 ? 0 : i) % GROUP_TONES.length]
+  return groupTone(doc, group)
 }
 
 export const TABLE_W = 260

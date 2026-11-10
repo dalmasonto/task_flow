@@ -53,8 +53,8 @@ describe("db diagram rules", () => {
   })
 
   it("gives every group a stable colour", () => {
-    expect(toneFor(doc, "projects")).toBe(toneFor(doc, "projects"))
-    expect(toneFor(doc, "projects")).not.toBe(toneFor(doc, "agents"))
+    expect(toneFor(doc, "projects")).toEqual(toneFor(doc, "projects"))
+    expect(toneFor(doc, "projects")).not.toEqual(toneFor(doc, "agents"))
   })
 
   it("replaces a renamed model in place, or appends a new one", () => {

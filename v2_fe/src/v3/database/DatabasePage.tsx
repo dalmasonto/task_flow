@@ -9,14 +9,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Background, Controls, type Edge, MarkerType, MiniMap, type Node, type NodeChange, ReactFlow, ReactFlowProvider, applyNodeChanges, useReactFlow, useViewport } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { DatabaseIcon, GitBranchIcon, HashIcon, HistoryIcon, MessageSquareIcon, MinusIcon, MousePointerClickIcon, PlusIcon, RefreshCwIcon, SearchIcon, TableIcon, XIcon } from "lucide-react"
+import { DatabaseIcon, GitBranchIcon, HashIcon, HistoryIcon, MessageSquareIcon, MinusIcon, MousePointerClickIcon, PlusIcon, RefreshCwIcon, TableIcon, XIcon } from "lucide-react"
 
 import { AgentsConversationView } from "@/components/chat/conversation-view"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { Button } from "@/components/ui/button"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import { Input } from "@/components/ui/input"
 import { DB_CHAT_PANEL, DB_SIDE_PANEL } from "@/components/panels/panel-width"
 import { ResizeHandle } from "@/components/panels/resize-handle"
 import { useSidePanels } from "@/components/panels/use-side-panels"
@@ -45,10 +45,12 @@ import { seedTaskFrom } from "../tasks/task-seed"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { DataTab } from "./data-tab"
-import { cardinality, facingSides, fkEdges, groupsOf, layoutModels, relatedModels, sourceHandle, targetHandle, toneFor, withModel } from "./db-graph"
-import { matchModels } from "./db-search"
+import { cardinality, facingSides, fkEdges, layoutModels, relatedModels, sourceHandle, targetHandle, toneFor, withModel } from "./db-graph"
 import { DbTableNode } from "./db-table-node"
+import { addRelation, deleteGroup, effectiveGroups, upsertGroup } from "./db-groups"
+import { GroupDialog } from "./group-dialog"
 import { ModelEditor } from "./model-editor"
+import { ModelsPanel } from "./models-panel"
 
 const NODE_TYPES = { table: DbTableNode }
 const REFRESH_MS = 10_000
@@ -100,7 +102,8 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
   const [chatOpen, setChatOpen] = useState(true)
   // #1083: both sides resizable, the same default width, remembered per user.
   const { rowRef: panelRow, leftWidth, rightWidth, leftHandle, rightHandle } = useSidePanels(DB_CHAT_PANEL, DB_SIDE_PANEL, currentUser?.id ?? null, { left: chatOpen, right: true })
-  const [query, setQuery] = useState("")
+  const [groupDialog, setGroupDialog] = useState<{ slug: string | null } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
   // React Flow hides a node until it has measured it; a controlled node list
   // must hand the measurement back or the tables never appear.
@@ -382,16 +385,81 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
                   setSelected(model.name)
                 }
               }}
-              onDelete={async () => {
-                if (!window.confirm(`Delete ${openModel.name}? Versions can bring it back.`)) return
-                if (await commit({ ...doc, models: doc.models.filter((m) => m.name !== openModel.name) })) setSelected(null)
+              onDelete={() => setConfirmDelete(openModel.name)}
+              onNewGroup={() => setGroupDialog({ slug: null })}
+              onCreateJoin={async (target) => {
+                const { doc: next, added } = addRelation(doc, openModel.name, target, "many-to-many")
+                if (await commit(next)) {
+                  setDraftNew(null)
+                  setSelected(added.model)
+                }
               }}
             />
           ) : (
-            <ModelsList doc={doc} schema={schema} selected={selected} query={query} onQuery={setQuery} onSelect={open} />
+            <ModelsPanel
+              doc={doc}
+              schema={schema}
+              selected={selected}
+              busy={busy}
+              onOpen={open}
+              onNewModel={(group) => {
+                setDraftNew({ name: "NewModel", group, fields: [{ name: "id", type: "i64", primary_key: true }] })
+                setSelected(null)
+                setSaveError(null)
+              }}
+              onEditGroup={(slug) => setGroupDialog({ slug })}
+              onMoveModel={(name, group) => void commit({ ...doc, models: doc.models.map((m) => (m.name === name ? { ...m, group } : m)) })}
+              onDeleteModel={(name) => setConfirmDelete(name)}
+            />
           )}
         </aside>
       </div>
+
+      {groupDialog ? (
+        <GroupDialog
+          doc={doc}
+          group={groupDialog.slug ? (effectiveGroups(doc).find((g) => g.slug === groupDialog.slug) ?? null) : null}
+          modelCount={groupDialog.slug ? doc.models.filter((m) => m.group === groupDialog.slug).length : 0}
+          busy={busy}
+          onClose={() => setGroupDialog(null)}
+          onSave={async (group, previousSlug) => {
+            let next = upsertGroup(doc, group, previousSlug)
+            // A group made from the editor becomes the open model's group.
+            if (!previousSlug && openModel && !draftNew) next = { ...next, models: next.models.map((m) => (m.name === openModel.name ? { ...m, group: group.slug } : m)) }
+            if (!previousSlug && draftNew) setDraftNew({ ...draftNew, group: group.slug })
+            if (await commit(next)) setGroupDialog(null)
+          }}
+          onDelete={
+            groupDialog.slug
+              ? async () => {
+                  if (await commit(deleteGroup(doc, groupDialog.slug!))) setGroupDialog(null)
+                }
+              : undefined
+          }
+        />
+      ) : null}
+
+      <AlertDialog open={confirmDelete != null} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {confirmDelete}?</AlertDialogTitle>
+            <AlertDialogDescription>It leaves the schema in a new version. Versions can bring it back.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={async () => {
+                const name = confirmDelete
+                setConfirmDelete(null)
+                if (name && (await commit({ ...doc, models: doc.models.filter((m) => m.name !== name) })) && selected === name) setSelected(null)
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {versionsOpen ? (
         <VersionsDialog
@@ -442,75 +510,6 @@ function Legend() {
         joins a model to itself
       </span>
       <span>? optional</span>
-    </div>
-  )
-}
-
-function ModelsList({
-  doc,
-  schema,
-  selected,
-  query,
-  onQuery,
-  onSelect,
-}: {
-  doc: DbSchemaDoc
-  schema: DbSchema | null
-  selected: string | null
-  query: string
-  onQuery: (q: string) => void
-  onSelect: (name: string) => void
-}) {
-  const now = useLivenessNow()
-  const shown = useMemo(() => new Set(matchModels(doc, query).map((m) => m.name)), [doc, query])
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="p-3">
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Find a model or field" aria-label="Find a model or field" className="h-8 pl-8" />
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <ul className="space-y-3 text-sm">
-          {groupsOf(doc).map((g) => {
-            const all = doc.models.filter((m) => (m.group ?? "") === g)
-            const models = all.filter((m) => shown.has(m.name))
-            if (!models.length) return null
-            return (
-              <li key={g || "_"}>
-                <p className="flex items-center gap-2 px-1 pb-1 text-xs font-medium text-muted-foreground">
-                  <span className={cn("size-2 rounded-full", toneFor(doc, g || undefined).dot)} aria-hidden />
-                  {g || "Other"}
-                  <span className="ml-auto tabular-nums">{all.length}</span>
-                </p>
-                <ul className="space-y-0.5 font-mono text-xs">
-                  {models.map((m) => (
-                    <li key={m.name}>
-                      <button
-                        type="button"
-                        onClick={() => onSelect(m.name)}
-                        aria-current={selected === m.name ? "true" : undefined}
-                        className={cn("flex w-full items-center rounded-md px-2 py-1.5 text-left hover:bg-accent", selected === m.name && "bg-accent font-semibold")}
-                      >
-                        <span className="truncate">{m.name}</span>
-                        <span className="ml-auto pl-2 text-muted-foreground">{m.fields.length}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            )
-          })}
-          {doc.models.length && !shown.size ? <li className="px-1 text-xs text-muted-foreground">No model or field matches.</li> : null}
-        </ul>
-      </div>
-      {schema && schema.version > 0 ? (
-        <p className="border-t border-border p-3 text-xs text-muted-foreground">
-          Schema v{schema.version}, saved by {schema.updated_by_label}
-          {schema.updated_at ? ` ${timeAgo(schema.updated_at, now)}` : ""}.
-        </p>
-      ) : null}
     </div>
   )
 }

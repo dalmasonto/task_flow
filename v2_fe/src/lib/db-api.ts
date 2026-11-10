@@ -26,7 +26,11 @@ export type DbModel = {
   samples?: Record<string, unknown>[]
 }
 
-export type DbSchemaDoc = { models: DbModel[] }
+/// A named, coloured group of models; a model's `group` is its slug. `color`
+/// is a theme token id (v3/database/db-groups GROUP_COLORS).
+export type DbGroup = { slug: string; name: string; color: string }
+
+export type DbSchemaDoc = { groups?: DbGroup[]; models: DbModel[] }
 
 export type DbSchema = {
   version: number
