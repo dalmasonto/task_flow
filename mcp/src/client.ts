@@ -326,6 +326,22 @@ export interface UpdateTaskInput {
   repo?: string | null;
 }
 
+/** #1113: the body of `POST /agents/wakeups`, exactly as the server reads it. */
+export interface WakeupInput {
+  /** The agent to wake; omitted = this agent. */
+  agent?: number;
+  trigger: "after_time" | "task_unblocked" | "reply_to_message" | "message_in_room";
+  task?: number;
+  message?: number;
+  channel?: number;
+  mentions_only?: boolean;
+  fire_at?: string;
+  in_minutes?: number;
+  note: string;
+  deliver?: "pane" | "room" | "both";
+  deliver_channel?: number;
+}
+
 export interface RegisterSessionInput {
   session_identifier: string;
   host?: string;
@@ -708,6 +724,26 @@ export class TaskflowClient {
     return this.request("POST", `${API_PREFIX}/agents/tasks/${task}/status`, {
       body: { status },
     });
+  }
+
+  // ---- #720 / #1113: wake-up rules ------------------------------------------
+
+  /** `POST /agents/wakeups` — arm a wake-up rule (default: wakes this agent). */
+  createWakeup(input: WakeupInput): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/wakeups`, { body: input });
+  }
+
+  /** `GET /agents/wakeups` — the project's rules, optionally for one agent / status. */
+  listWakeups(params: { agent?: number; status?: string } = {}): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/wakeups`, {
+      query: { agent: params.agent, status: params.status },
+    });
+  }
+
+  /** `POST /agents/wakeups/{id}/{action}` — pause, resume or cancel a rule this
+   *  agent created or that wakes it. */
+  actOnWakeup(rule: number, action: "pause" | "resume" | "cancel"): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/wakeups/${rule}/${action}`, { body: {} });
   }
 
   /** `POST /agents/tasks/{id}/claim` — self-assign a task. */

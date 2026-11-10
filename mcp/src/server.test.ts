@@ -111,6 +111,19 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.heartbeats.push({ session, status });
       return { id: session, session_identifier: "x", status: "connected" };
     }
+    async createWakeup(input: unknown) {
+      harness.calls.push("createWakeup");
+      harness.payloads.push(JSON.stringify(input));
+      return { id: 9, status: "armed", ...(input as object) };
+    }
+    async listWakeups(params: { agent?: number; status?: string }) {
+      harness.calls.push(`listWakeups:${params.agent ?? "all"}:${params.status ?? "any"}`);
+      return { results: [], count: 0 };
+    }
+    async actOnWakeup(rule: number, action: string) {
+      harness.calls.push(`actOnWakeup:${rule}:${action}`);
+      return { id: rule, status: action === "cancel" ? "cancelled" : action === "pause" ? "paused" : "armed" };
+    }
     async listTasks() {
       harness.calls.push("listTasks");
       return [];
@@ -1440,5 +1453,42 @@ describe("named themes (#619)", () => {
     expect(desc("design_get_tokens")).toMatch(/`themes`/);
     expect(desc("design_screenshot")).toMatch(/'all'/);
     expect(desc("design_compare")).toMatch(/any theme the project declares/);
+  });
+});
+
+
+// #720 / #1113: wake-ups ride the server's rules; the MCP passes them through.
+describe("wake-up tools", () => {
+  it("arms a timed wake-up with the server's field names", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "create_wakeup",
+      arguments: { profile: "main", trigger: "after_time", in_minutes: 5, note: "check deploy run 812" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(harness.calls).toContain("createWakeup");
+    expect(JSON.parse(harness.payloads.at(-1)!)).toEqual({ trigger: "after_time", in_minutes: 5, note: "check deploy run 812" });
+  });
+
+  it("refuses an after_time rule with no time, before calling the server", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "create_wakeup", arguments: { profile: "main", trigger: "after_time", note: "x" } });
+    expect(result.isError).toBe(true);
+    expect(harness.calls).not.toContain("createWakeup");
+  });
+
+  it("lists your own rules by default, everyone's with all=true", async () => {
+    const client = await connectedClient();
+    await client.callTool({ name: "list_wakeups", arguments: { profile: "main", status: "armed" } });
+    await client.callTool({ name: "list_wakeups", arguments: { profile: "main", all: true } });
+    expect(harness.calls).toContain("listWakeups:1:armed");
+    expect(harness.calls).toContain("listWakeups:all:any");
+  });
+
+  it("cancels a rule", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "update_wakeup", arguments: { profile: "main", id: 9, action: "cancel" } });
+    expect(body(result).status).toBe("cancelled");
+    expect(harness.calls).toContain("actOnWakeup:9:cancel");
   });
 });

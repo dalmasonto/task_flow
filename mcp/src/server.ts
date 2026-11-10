@@ -914,6 +914,80 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
   );
 
+  // #720 / #1113: wake-ups. The server holds the rule, fires it once (a
+  // compare-and-set) and delivers a chat notice, which reaches this pane
+  // through the normal queue and prompt gate — so a wake-up can never type
+  // into a permission prompt the way a raw terminal input could.
+  server.tool(
+    "create_wakeup",
+    "Ask TaskFlow to wake you (or another agent) later instead of polling or blocking. Use it after starting something long — a deploy, CI, a build, a render — or when you are waiting on a person: set the rule, then carry on with other work or stop. When it fires, a notice from \"TaskFlow wake-up\" carrying your `note` arrives in your terminal like any message. Triggers: `after_time` (needs `in_minutes` 1-10080, or `fire_at` ISO time within 7 days); `task_unblocked` (`task` must be blocked now: fires when it leaves blocked or its open decision is ruled); `reply_to_message` (`message`: fires on the first reply to it); `message_in_room` (`channel`, optionally `mentions_only`). Delivery: `pane` (default, a private Wake-ups DM, so it reaches only the woken agent), `room` (posts in `deliver_channel`), or `both`. Another agent's pane is off-limits: for someone else use `deliver: room`. Max 20 armed rules per agent; a rule fires exactly once. If you are offline when it fires it is held as `missed` and arrives when your next session starts. Write the note as an instruction to your future self, e.g. \"check deploy run 812; if green, mark #TSK720 done\". Returns the rule (keep its `id` to cancel it).",
+    {
+      trigger: z.enum(["after_time", "task_unblocked", "reply_to_message", "message_in_room"]).describe("What fires the rule."),
+      note: z.string().trim().min(1).max(1000).describe("What to do when woken (1-1000 chars). It is the notice's text."),
+      in_minutes: z.number().int().min(1).max(10080).optional().describe("after_time: minutes from now."),
+      fire_at: z.string().optional().describe("after_time: an absolute ISO-8601 time instead of in_minutes."),
+      task: z.number().int().optional().describe("task_unblocked: the blocked task to watch."),
+      message: z.number().int().optional().describe("reply_to_message: the message whose first reply fires it."),
+      channel: z.number().int().optional().describe("message_in_room: the room to watch."),
+      mentions_only: z.boolean().optional().describe("message_in_room: fire only on a message that mentions the woken agent."),
+      deliver: z.enum(["pane", "room", "both"]).optional().describe("Where the notice goes (default pane)."),
+      deliver_channel: z.number().int().optional().describe("room/both: the channel to post the notice in."),
+      agent: z.number().int().optional().describe("Wake another agent instead of yourself (then deliver must be room)."),
+      ...profileArg,
+    },
+    async ({ profile, ...input }) => {
+      try {
+        if (input.trigger === "after_time" && input.in_minutes == null && !input.fire_at) {
+          return fail(new Error("after_time needs in_minutes or fire_at."));
+        }
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        return ok(await picked.client.createWakeup(input));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "list_wakeups",
+    "List wake-up rules in this project: by default the ones that wake YOU, newest first. Filter by status (armed, fired, missed, paused, cancelled). Pass all=true to see every agent's rules.",
+    {
+      status: z.enum(["armed", "fired", "missed", "paused", "cancelled"]).optional().describe("Only rules in this state."),
+      all: z.boolean().optional().describe("Every agent's rules, not only yours."),
+      ...profileArg,
+    },
+    async ({ status, all, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const agent = all ? undefined : picked.resolved.agentId;
+        return ok(await picked.client.listWakeups({ agent, status }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "update_wakeup",
+    "Pause, resume or cancel a wake-up rule you created or that wakes you. Cancel one as soon as you no longer need it (the job finished early, you got your answer another way) so it doesn't wake you for nothing. A fired rule is finished and cannot change (409 invalid_transition).",
+    {
+      id: z.number().int().describe("The rule id (from create_wakeup or list_wakeups)."),
+      action: z.enum(["pause", "resume", "cancel"]).describe("What to do with it."),
+      ...profileArg,
+    },
+    async ({ id, action, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        return ok(await picked.client.actOnWakeup(id, action));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
   server.tool(
     "report_review",
     "Record a review verdict on a task (decision: approved | changes_requested). Reports back to the assigned agent and transitions the task. Consider the 'reviewer' profile for review work.",

@@ -176,6 +176,12 @@ that for the rest of the session.
 - Statuses are a fixed set: \`not_started\`, \`in_progress\`, \`paused\`,
   \`blocked\`, \`partial_done\`, \`done\`, \`archived\`. Don't invent values. Never
   silently fix a bug — open or reopen a task first, then track the fix.
+- **Don't poll, don't block.** After starting something long (a deploy, CI, a
+  build) or when waiting on a person, call **create_wakeup** (after a time, when
+  a blocked task unblocks, on a reply to a message, or on a message in a room)
+  with a note to your future self, then carry on or stop. The notice arrives in
+  your terminal like a message. **list_wakeups** / **update_wakeup** to review or
+  cancel one you no longer need.
 
 ## Activity & terminal — be transparent
 - **log_activity** records a notable action (optionally linked to a task);
