@@ -8,7 +8,7 @@ import { type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { dockBodyFor } from "@/lib/chat-dock-state"
 import { findPublicRoomChat } from "@/lib/live-mappers"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 
 /// The status line the dock wears while it has no conversation to draw, and the
@@ -155,6 +155,26 @@ export function ChatDock({
     }
   }, [onRefreshWorkspace])
 
+  // #983: publish the dock's live width so the sessions pill can sit beside it
+  // instead of on top of its composer. A callback ref (not an effect), because
+  // the section mounts and unmounts under the early return below.
+  const dockObserver = useRef<ResizeObserver | null>(null)
+  const measureDock = useCallback((el: HTMLElement | null) => {
+    dockObserver.current?.disconnect()
+    dockObserver.current = null
+    const root = document.documentElement
+    if (!el) {
+      root.style.removeProperty("--chat-dock-w")
+      return
+    }
+    const publish = () => root.style.setProperty("--chat-dock-w", `${Math.round(el.getBoundingClientRect().width)}px`)
+    publish()
+    if (typeof ResizeObserver !== "undefined") {
+      dockObserver.current = new ResizeObserver(publish)
+      dockObserver.current.observe(el)
+    }
+  }, [])
+
   if (!allChats.length) return null
 
   // Two frames, not four: the conversation gets the panel; collapsed, loading
@@ -177,6 +197,7 @@ export function ChatDock({
 
   return (
     <section
+      ref={measureDock}
       role="dialog"
       aria-label="Chat"
       className={cn(

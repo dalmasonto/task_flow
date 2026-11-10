@@ -15,6 +15,7 @@ export function TaskSessionDock({
   onPauseSession,
   onStopSession,
   stackedAbove,
+  besideDock,
 }: {
   tasks: Task[]
   liveWorkspace?: TaskflowWorkspace | null
@@ -27,6 +28,8 @@ export function TaskSessionDock({
    *  share the corner, and the pill (z-65) swallowed the launcher's clicks.
    *  The caller owns the launcher's visibility, so the caller decides. */
   stackedAbove?: boolean
+  /** #983: the chat dock is open in the corner; sit to its left. */
+  besideDock?: boolean
 }) {
   const [tick, setTick] = useState(0)
   // #35: minimized by default so the dock never covers the chat input / terminal
@@ -58,7 +61,14 @@ export function TaskSessionDock({
   // #663: the corner is shared with the Chat launcher (~3rem tall plus its
   // bottom-4). Stacked, the dock starts above it and aligns to the launcher's
   // right edge; unstacked (the launcher hidden) it takes the corner itself.
-  const corner = stackedAbove ? "bottom-[4.5rem] right-4" : "bottom-3 right-3"
+  // #983: with the chat dock OPEN the corner is the dock's composer, so the pill
+  // moves to the dock's left (the dock publishes its width as --chat-dock-w).
+  // Below lg the dock fills the screen; there the pill steps aside entirely.
+  const corner = besideDock
+    ? "bottom-4 right-[calc(var(--chat-dock-w,0px)+1.5rem)] max-lg:hidden"
+    : stackedAbove
+      ? "bottom-[4.5rem] right-4"
+      : "bottom-3 right-3"
 
   // Minimized: a compact pill in the corner so it never overlaps the chat input
   // or terminal keypad (which live at the bottom-center). Click to expand.

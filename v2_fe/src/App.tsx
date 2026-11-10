@@ -2788,6 +2788,7 @@ function App() {
         liveWorkspace={activeLiveWorkspace}
         // #663: the launcher below occupies the same corner while it shows.
         stackedAbove={showChatLauncher}
+        besideDock={Boolean(activeProject) && dockOpen}
         onOpenTask={openTaskDetails}
         onStartSession={handleStartTaskSession}
         onPauseSession={handlePauseTaskSession}
