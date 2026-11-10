@@ -83,6 +83,9 @@ pub async fn post_agent_note(project_id: i64, agent_id: i64, agent_label: &str, 
     let Ok(room) = ensure_db_room(project_id).await else { return };
     let _ = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            // An ordinary room message, not a thread reply (#1132).
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project_id),
             channel: ForeignKey::new(room.id),
