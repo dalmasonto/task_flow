@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import type { DbSchemaDoc } from "@/lib/db-api"
+import type { DbModel, DbSchemaDoc } from "@/lib/db-api"
 
 import { fkEdges, groupsOf, keyField, layoutModels, relatedModels, suggestedTarget, toneFor, withModel } from "./db-graph"
 
@@ -94,5 +94,20 @@ describe("facingSides", () => {
     expect(facingSides(0, 300, false)).toEqual({ from: "r", to: "l" })
     expect(facingSides(300, 0, false)).toEqual({ from: "l", to: "r" })
     expect(facingSides(0, 0, true)).toEqual({ from: "r", to: "r" })
+    // Same column: a bracket on the right, not a loop around the table.
+    expect(facingSides(0, 20, false)).toEqual({ from: "r", to: "r" })
+  })
+})
+
+describe("relationship kinds", () => {
+  it("tells many-to-one, one-to-one and a many-to-many join apart", async () => {
+    const { cardinality, isJoinModel } = await import("./db-graph")
+    const join: DbModel = { name: "BlogTag", fields: [{ name: "id", type: "i64", primary_key: true }, { name: "blog", type: "fk", fk: { model: "Blog" } }, { name: "tag", type: "fk", fk: { model: "Tag" } }] }
+    const blog: DbModel = { name: "Blog", fields: [{ name: "id", type: "i64" }, { name: "title", type: "String" }, { name: "author", type: "fk", fk: { model: "User" } }, { name: "category", type: "fk", fk: { model: "Category" } }] }
+    expect(isJoinModel(join)).toBe(true)
+    expect(isJoinModel(blog)).toBe(false)
+    expect(cardinality(join, join.fields[1])).toBe("M:N")
+    expect(cardinality(blog, blog.fields[2])).toBe("N:1")
+    expect(cardinality({ name: "UserProfile", fields: [] }, { unique: true })).toBe("1:1")
   })
 })

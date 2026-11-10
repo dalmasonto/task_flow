@@ -9,7 +9,7 @@ import { LockIcon } from "lucide-react"
 import type { DbModel } from "@/lib/db-api"
 import { cn } from "@/lib/utils"
 
-import { sourceHandle, TABLE_W, targetHandle } from "./db-graph"
+import { isJoinModel, sourceHandle, TABLE_W, targetHandle } from "./db-graph"
 
 export type TableNodeData = {
   model: DbModel
@@ -30,6 +30,11 @@ export function DbTableNode({ data }: NodeProps) {
       <div className="flex items-center gap-2 border-b px-3 py-2.5">
         <span className={cn("size-2 rounded-full", dot)} />
         <span className="min-w-0 flex-1 truncate font-mono text-[13px] font-semibold">{model.name}</span>
+        {isJoinModel(model) ? (
+          <span className="rounded border border-border px-1 text-[10px] font-medium text-muted-foreground" title="A join table: it links two models many-to-many">
+            join · M:N
+          </span>
+        ) : null}
         {model.samples?.length ? (
           <span className="text-muted-foreground">
             {model.samples.length} sample {model.samples.length === 1 ? "row" : "rows"}

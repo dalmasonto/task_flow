@@ -42,7 +42,7 @@ import { seedTaskFrom } from "../tasks/task-seed"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { DataTab } from "./data-tab"
-import { facingSides, fkEdges, groupsOf, layoutModels, relatedModels, sourceHandle, targetHandle, toneFor, withModel } from "./db-graph"
+import { cardinality, facingSides, fkEdges, groupsOf, layoutModels, relatedModels, sourceHandle, targetHandle, toneFor, withModel } from "./db-graph"
 import { matchModels } from "./db-search"
 import { DbTableNode } from "./db-table-node"
 import { ModelEditor } from "./model-editor"
@@ -143,14 +143,22 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
   )
   // Column to column (database.html): from the foreign-key field's row to the
   // target's key row, arrow at the target, in the target group's colour.
-  const edges: Edge[] = useMemo(
-    () =>
-      fkEdges(doc).map((e) => {
+  const edges: Edge[] = useMemo(() => {
+    // Brackets that share a side lane (same-column relations, self-joins)
+    // each get their own offset, so stacked lines stay readable.
+    const lane = new Map<string, number>()
+    return fkEdges(doc).map((e) => {
         const target = doc.models.find((m) => m.name === e.target)
         const colour = toneFor(doc, target?.group).line
         const dim = related && !(related.has(e.source) && related.has(e.target))
         const at = (name: string) => (positions.get(name) ?? layout.get(name) ?? { x: 0 }).x
         const sides = facingSides(at(e.source), at(e.target), e.selfJoin)
+        const laneKey = sides.from === sides.to ? `${Math.round(at(e.source))}:${sides.from}` : ""
+        const nth = laneKey ? (lane.get(laneKey) ?? 0) : 0
+        if (laneKey) lane.set(laneKey, nth + 1)
+        const holder = doc.models.find((m) => m.name === e.source)
+        const field = holder?.fields.find((f) => f.name === e.field)
+        const kind = holder && field ? cardinality(holder, field) : "N:1"
         return {
           id: e.id,
           source: e.source,
@@ -158,12 +166,19 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
           sourceHandle: sourceHandle(e.field, sides.from),
           targetHandle: e.targetField ? targetHandle(e.targetField, sides.to) : undefined,
           type: "smoothstep",
+          pathOptions: { offset: 18 + nth * 14, borderRadius: 6 },
           markerEnd: { type: MarkerType.ArrowClosed, color: colour, width: 16, height: 16 },
+          // N:1 many-to-one, 1:1 one-to-one, M:N half of a join table.
+          label: kind,
+          labelStyle: { fontSize: 10, fontFamily: "var(--font-mono)", fill: colour, fontWeight: 600 },
+          labelBgStyle: { fill: "var(--card)" },
+          labelBgPadding: [4, 2] as [number, number],
+          labelBgBorderRadius: 4,
+          labelShowBg: true,
           style: { stroke: colour, strokeWidth: 1.5, strokeDasharray: e.selfJoin ? "6 4" : undefined, opacity: dim ? 0.2 : 1 },
         }
-      }),
-    [doc, related, positions, layout],
-  )
+      })
+  }, [doc, related, positions, layout])
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const next = applyNodeChanges(changes, nodes)
@@ -315,7 +330,7 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
                   <Background gap={20} size={1} />
                   {/* Zoom in / out, fit (centre) and lock, bottom right. */}
                   <Controls position="bottom-right" showInteractive aria-label="Map controls" />
-                  <MiniMap position="top-right" pannable zoomable nodeColor="var(--muted-foreground)" maskColor="color-mix(in oklab, var(--background) 70%, transparent)" className="!h-24 !w-36 rounded-md border border-border" />
+                  <MiniMap position="top-left" pannable zoomable nodeColor="var(--muted-foreground)" maskColor="color-mix(in oklab, var(--background) 70%, transparent)" className="!h-24 !w-36 rounded-md border border-border" />
                 </ReactFlow>
                 <Legend />
               </>
@@ -336,7 +351,7 @@ function DatabaseWorkspace({ project, reload }: { project: Project; reload: numb
         </main>
 
         {/* RIGHT: the models list, or the editor for the open model */}
-        <aside className={cn("hidden min-h-0 shrink-0 flex-col border-l border-border bg-background md:flex", openModel ? "md:w-96" : "md:w-72")}>
+        <aside className="hidden min-h-0 w-80 shrink-0 flex-col border-l border-border bg-background md:flex">
           {openModel ? (
             <ModelEditor
               key={`${draftNew ? "new" : openModel.name}@${version}`}
@@ -403,7 +418,10 @@ function Legend() {
     <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur">
       <span className="inline-flex items-center gap-1.5">
         <span className="h-0.5 w-4 bg-chart-1" aria-hidden />
-        foreign key, in the target&apos;s group colour
+        relation, arrow at the model it points to
+      </span>
+      <span>
+        <b className="font-mono">N:1</b> many-to-one · <b className="font-mono">1:1</b> one-to-one · <b className="font-mono">M:N</b> many-to-many (through a join table)
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="w-4 border-t-2 border-dashed border-chart-1" aria-hidden />

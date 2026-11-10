@@ -2,7 +2,7 @@
 /// lines connect them, which tables relate to the one being edited, and which
 /// colour a group gets. No React, so it is unit-tested.
 
-import type { DbModel, DbSchemaDoc } from "@/lib/db-api"
+import type { DbField, DbModel, DbSchemaDoc } from "@/lib/db-api"
 
 /// Five distinct hues, cycled by group — the same chart tokens the mocks use.
 export const GROUP_TONES = [
@@ -112,9 +112,27 @@ export const sourceHandle = (field: string, side: Side = "r") => `s:${side}:${fi
 export const targetHandle = (field: string, side: Side = "l") => `t:${side}:${field}`
 
 /// Which sides face each other: target to the right → leave right, enter
-/// left; to the left → leave left, enter right. A self-join leaves and
-/// re-enters on the right, a loop beside the table.
-export function facingSides(sourceX: number, targetX: number, selfJoin: boolean): { from: Side; to: Side } {
-  if (selfJoin) return { from: "r", to: "r" }
-  return targetX >= sourceX ? { from: "r", to: "l" } : { from: "l", to: "r" }
+/// left; to the left → leave left, enter right. A self-join, or two tables
+/// in the same column (overlapping horizontally), leave and enter on the
+/// right: a bracket beside the column instead of a loop around a table.
+export function facingSides(sourceX: number, targetX: number, selfJoin: boolean, width = TABLE_W): { from: Side; to: Side } {
+  if (selfJoin || Math.abs(targetX - sourceX) < width) return { from: "r", to: "r" }
+  return targetX > sourceX ? { from: "r", to: "l" } : { from: "l", to: "r" }
+}
+
+/// A join table for a many-to-many: two or more relations, and nothing else
+/// but its own key and timestamps (BlogTag: id, blog → Blog, tag → Tag).
+export function isJoinModel(model: DbModel): boolean {
+  const fks = model.fields.filter((f) => f.type === "fk")
+  if (fks.length < 2) return false
+  return model.fields.every((f) => f.type === "fk" || f.primary_key || f.name === "id" || /^(created|updated)_at$/.test(f.name))
+}
+
+export type Cardinality = "N:1" | "1:1" | "M:N"
+
+/// What a relation line says: a unique fk is one-to-one, a join table's fks
+/// are each half of a many-to-many, any other fk is many-to-one.
+export function cardinality(model: DbModel, field: Pick<DbField, "unique">): Cardinality {
+  if (isJoinModel(model)) return "M:N"
+  return field.unique ? "1:1" : "N:1"
 }
