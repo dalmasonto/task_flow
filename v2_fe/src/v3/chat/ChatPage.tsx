@@ -226,7 +226,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
           </Button>
         </div>
         {newOpen ? <NewConversationPanel key={newMode} initialMode={newMode} candidates={candidates} onCreate={onCreate} onClose={() => setNewOpen(false)} /> : null}
-        <div role="tablist" aria-label="Filter conversations" className="flex gap-1">
+        <div role="tablist" aria-label="Filter conversations" className="flex flex-wrap gap-0.5">
           {filters.map((f) => (
             <button
               key={f.id}
@@ -234,7 +234,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
               role="tab"
               aria-selected={active === f.id}
               onClick={() => setFilter(f.id)}
-              className={cn("inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs", active === f.id ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+              className={cn("inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs", active === f.id ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
             >
               {f.label}
               {f.id === "unread" && unread ? <span className="tabular-nums">{unread}</span> : null}
