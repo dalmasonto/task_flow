@@ -1558,9 +1558,12 @@ export function DesignSurfacePage({
           <Tabs
             value={rightTab}
             onValueChange={(value) => setRightTab(value as DesignTab)}
-            className="h-full min-h-0"
+            className="h-full min-h-0 min-w-0"
           >
-            <TabsList>
+            {/* The five tabs scroll sideways on their own (scrollbar hidden)
+                instead of widening the panel when it's narrow. */}
+            <div className="max-w-full shrink-0 overflow-x-auto overflow-y-hidden border-b [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <TabsList className="w-max border-b-0 [&>*]:shrink-0">
               <TabsTrigger value="inspect">Inspect</TabsTrigger>
               <TabsTrigger value="comments">
                 Comments
@@ -1572,6 +1575,7 @@ export function DesignSurfacePage({
               <TabsTrigger value="tokens">Tokens</TabsTrigger>
               <TabsTrigger value="components">Components</TabsTrigger>
             </TabsList>
+            </div>
 
             <TabsContent value="comments" className="min-h-0">
               {projectId ? (
